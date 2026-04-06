@@ -1327,6 +1327,41 @@ const clineAdapter: AgentSessionAdapter = {
 	},
 };
 
+const kiroAdapter: AgentSessionAdapter = {
+	async prepare(input) {
+		const args = [...input.args];
+		const env: Record<string, string | undefined> = {};
+
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--trust-all-tools") && !hasCliOption(args, "-a")) {
+			args.push("--trust-all-tools");
+		}
+
+		if (input.resumeFromTrash && !hasCliOption(args, "--resume") && !hasCliOption(args, "-r")) {
+			args.push("--resume");
+		}
+
+		const hooks = resolveHookContext(input);
+		if (hooks) {
+			Object.assign(
+				env,
+				createHookRuntimeEnv({
+					taskId: hooks.taskId,
+					workspaceId: hooks.workspaceId,
+				}),
+			);
+		}
+
+		const withPromptLaunch = withPrompt(args, input.prompt, "append");
+		return {
+			...withPromptLaunch,
+			env: {
+				...withPromptLaunch.env,
+				...env,
+			},
+		};
+	},
+};
+
 const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	claude: claudeAdapter,
 	codex: codexAdapter,
@@ -1334,6 +1369,7 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	opencode: opencodeAdapter,
 	droid: droidAdapter,
 	cline: clineAdapter,
+	kiro: kiroAdapter,
 };
 
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {

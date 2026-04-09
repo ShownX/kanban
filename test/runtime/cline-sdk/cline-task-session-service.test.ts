@@ -841,6 +841,33 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(service.getSummary("task-1")?.mode).toBe("plan");
 	});
 
+	it("prepends a Kanban-managed planning prompt when start in plan mode is enabled", async () => {
+		const { service, runtime } = createTrackedService();
+
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			startInPlanMode: true,
+		});
+		await vi.waitFor(() => {
+			expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(1);
+		});
+
+		expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mode: "act",
+				prompt: expect.stringContaining("Do not modify files, do not use write tools"),
+			}),
+		);
+		expect(runtime.startTaskSessionMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.stringContaining("Task:\nInvestigate startup"),
+			}),
+		);
+		expect(service.getSummary("task-1")?.mode).toBe("act");
+	});
+
 	it("keeps the most recent mode for subsequent follow-up input", async () => {
 		const { service, runtime } = createTrackedService();
 

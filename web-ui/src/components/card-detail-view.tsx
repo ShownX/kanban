@@ -615,7 +615,8 @@ export function CardDetailView({
 			taskId={selection.card.id}
 			summary={sessionSummary}
 			taskColumnId={selection.column.id}
-			defaultMode={selection.card.startInPlanMode ? "plan" : "act"}
+			defaultMode="act"
+			showComposerModeToggle={false}
 			workspaceId={currentProjectId}
 			runtimeConfig={runtimeConfig}
 			onClineSettingsSaved={onClineSettingsSaved}

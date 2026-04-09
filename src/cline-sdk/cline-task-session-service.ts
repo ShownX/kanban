@@ -59,6 +59,7 @@ export interface StartClineTaskSessionRequest {
 	taskId: string;
 	cwd: string;
 	prompt: string;
+	startInPlanMode?: boolean;
 	initialMessages?: ClineSdkPersistedMessage[];
 	images?: RuntimeTaskImage[];
 	resumeFromTrash?: boolean;
@@ -140,6 +141,19 @@ function formatStartWarnings(warnings: readonly string[] | undefined): string | 
 		return normalized[0] ?? null;
 	}
 	return `${normalized[0]} (+${normalized.length - 1} more MCP warning${normalized.length === 2 ? "" : "s"})`;
+}
+
+function buildClineStartPrompt(prompt: string, startInPlanMode?: boolean): string {
+	if (!startInPlanMode) {
+		return prompt;
+	}
+	const trimmedPrompt = prompt.trim();
+	return [
+		"First, inspect the codebase and produce a clear implementation plan only.",
+		"Do not modify files, do not use write tools, and do not implement anything yet.",
+		"After you present the plan, ask for approval before making changes.",
+		trimmedPrompt ? `\n\nTask:\n${trimmedPrompt}` : " Ask the user what they want planned if the task is unclear.",
+	].join(" ");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -323,7 +337,7 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 		const providerId = request.providerId?.trim().toLowerCase() || SDK_DEFAULT_PROVIDER_ID;
 		const modelId = request.modelId?.trim() || SDK_DEFAULT_MODEL_ID;
-		const resolvedMode: RuntimeTaskSessionMode = request.mode ?? "act";
+		const resolvedMode: RuntimeTaskSessionMode = request.startInPlanMode ? "act" : (request.mode ?? "act");
 		const persistedResumeSnapshot = request.resumeFromTrash
 			? await this.sessionRuntime.readPersistedTaskSession(request.taskId).catch(() => null)
 			: null;
@@ -387,7 +401,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			const assistantCountBeforeStart = entry.messages.filter((message) => message.role === "assistant").length;
 			try {
 				const runtimeSetup = await this.ensureRuntimeSetup(request.cwd);
-				const runtimePrompt = runtimeSetup.resolvePrompt(request.prompt);
+				const runtimePrompt = runtimeSetup.resolvePrompt(
+					buildClineStartPrompt(request.prompt, request.startInPlanMode),
+				);
 				let systemPrompt =
 					request.systemPrompt?.trim() ||
 					(await resolveClineSdkSystemPrompt({

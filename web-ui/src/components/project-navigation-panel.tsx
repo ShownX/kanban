@@ -1,6 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, X } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,12 @@ import { Spinner } from "@/components/ui/spinner";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeAgentId, RuntimeClineProviderSettings, RuntimeProjectSummary } from "@/runtime/types";
+import {
+	LocalStorageKey,
+	readLocalStorageItem,
+	removeLocalStorageItem,
+	writeLocalStorageItem,
+} from "@/storage/local-storage-store";
 import { formatPathForDisplay } from "@/utils/path-display";
 import { isMacPlatform, modifierKeyLabel } from "@/utils/platform";
 import { useUnmount, useWindowEvent } from "@/utils/react-use";
@@ -396,9 +402,7 @@ export function ProjectNavigationPanel({
 				</>
 			) : (
 				<div className="flex flex-1 min-h-0 flex-col">
-					{selectedAgentId && selectedAgentId !== "cline" ? (
-						<TerminalAgentHints agentId={selectedAgentId} />
-					) : null}
+					{selectedAgentId && selectedAgentId !== "cline" ? <TerminalAgentHints /> : null}
 					<div className="flex flex-1 min-h-0 overflow-hidden bg-surface-1 px-2 pb-2 pt-1">
 						{agentSectionContent ?? (
 							<div className="flex w-full items-center justify-center rounded-md border border-border bg-surface-2 px-3 text-center text-sm text-text-secondary">
@@ -481,19 +485,19 @@ const TERMINAL_AGENT_HINTS: readonly { label: string; hint: string }[] = [
 	{ label: "Import issues", hint: "Pull issues into task cards via GitHub CLI or Linear MCP" },
 ];
 
-const AGENT_TIPS_DISMISSED_KEY = "kb-agent-tips-dismissed";
-
-function TerminalAgentHints(_props: { agentId: RuntimeAgentId }): React.ReactElement {
-	const [isDismissed, setIsDismissed] = useState(() => localStorage.getItem(AGENT_TIPS_DISMISSED_KEY) === "true");
+function TerminalAgentHints(): React.ReactElement {
+	const [isDismissed, setIsDismissed] = useState(
+		() => readLocalStorageItem(LocalStorageKey.AgentTipsDismissed) === "true",
+	);
 
 	const dismiss = useCallback(() => {
 		setIsDismissed(true);
-		localStorage.setItem(AGENT_TIPS_DISMISSED_KEY, "true");
+		writeLocalStorageItem(LocalStorageKey.AgentTipsDismissed, "true");
 	}, []);
 
 	const restore = useCallback(() => {
 		setIsDismissed(false);
-		localStorage.removeItem(AGENT_TIPS_DISMISSED_KEY);
+		removeLocalStorageItem(LocalStorageKey.AgentTipsDismissed);
 	}, []);
 
 	if (isDismissed) {
@@ -511,7 +515,7 @@ function TerminalAgentHints(_props: { agentId: RuntimeAgentId }): React.ReactEle
 		);
 	}
 	return (
-		<div className="shrink-0 mx-2 mt-1 mb-1 rounded-md border border-border-bright/50 bg-surface-0/60 px-3 py-2">
+		<div className="shrink-0 mx-2 mt-1 mb-1 rounded-md border border-border bg-surface-2/60 px-3 py-2">
 			<div className="flex items-center justify-between mb-1.5">
 				<span className="text-[11px] font-medium text-text-secondary flex items-center gap-1">
 					<Lightbulb size={11} className="text-status-gold" />
@@ -520,18 +524,22 @@ function TerminalAgentHints(_props: { agentId: RuntimeAgentId }): React.ReactEle
 				<button
 					type="button"
 					onClick={dismiss}
-					className="cursor-pointer border-none bg-transparent p-0 text-[10px] text-text-tertiary hover:text-text-secondary"
+					aria-label="Dismiss tips"
+					className="cursor-pointer border-none bg-transparent p-0 text-text-tertiary hover:text-text-secondary"
 				>
-					Hide
+					<X size={12} />
 				</button>
 			</div>
-			<div className="space-y-1">
+			<ul className="m-0 list-none space-y-1 pl-0">
 				{TERMINAL_AGENT_HINTS.map((item) => (
-					<p key={item.label} className="m-0 text-[11px] text-text-tertiary">
-						<span className="text-text-primary font-medium">{item.label}</span> — {item.hint}
-					</p>
+					<li key={item.label} className="flex items-start gap-1.5 text-[11px] text-text-secondary">
+						<span className="mt-[5px] block h-1 w-1 shrink-0 rounded-full bg-text-tertiary" />
+						<span>
+							<span className="font-medium text-text-primary">{item.label}.</span> {item.hint}
+						</span>
+					</li>
 				))}
-			</div>
+			</ul>
 		</div>
 	);
 }

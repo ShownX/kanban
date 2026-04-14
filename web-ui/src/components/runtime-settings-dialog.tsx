@@ -821,7 +821,6 @@ export function RuntimeSettingsDialog({
 							</div>
 							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 								<ClineSetupSection
-									showHeading={false}
 									controller={clineSettings}
 									mcpController={clineMcpSettings}
 									controlsDisabled={controlsDisabled}

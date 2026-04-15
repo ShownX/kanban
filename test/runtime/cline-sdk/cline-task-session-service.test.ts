@@ -200,26 +200,6 @@ function createFakeClineSessionRuntime(): FakeClineSessionRuntimeController {
 				const snapshot = await readPersistedTaskSessionMock(taskId);
 				if (snapshot) {
 					bindTaskSession(taskId, snapshot.record.sessionId);
-					if (!lastStartRequestByTaskId.has(taskId)) {
-						const record =
-							snapshot.record && typeof snapshot.record === "object"
-								? (snapshot.record as unknown as Record<string, unknown>)
-								: null;
-						const persistedCwd = typeof record?.cwd === "string" ? record.cwd : "";
-						const persistedWorkspaceRoot = typeof record?.workspaceRoot === "string" ? record.workspaceRoot : "";
-						lastStartRequestByTaskId.set(taskId, {
-							taskId,
-							cwd: persistedCwd || persistedWorkspaceRoot,
-							providerId: typeof record?.provider === "string" ? record.provider : "cline",
-							modelId: typeof record?.model === "string" ? record.model : "anthropic/claude-sonnet-4.6",
-							mode: undefined,
-							apiKey: undefined,
-							baseUrl: undefined,
-							systemPrompt: "You are a helpful coding assistant.",
-							userInstructionWatcher: undefined,
-							requestToolApproval: undefined,
-						});
-					}
 				}
 				return snapshot;
 			},

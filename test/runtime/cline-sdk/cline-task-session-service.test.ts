@@ -1252,6 +1252,11 @@ describe("InMemoryClineTaskSessionService", () => {
 			reasoning: "...",
 		});
 		runtime.emitAgentEvent(sessionId, {
+			type: "content_end",
+			contentType: "reasoning",
+			reasoning: "Thinking...",
+		});
+		runtime.emitAgentEvent(sessionId, {
 			type: "content_start",
 			contentType: "tool",
 			toolCallId: "tool-1",
@@ -1273,6 +1278,7 @@ describe("InMemoryClineTaskSessionService", () => {
 
 		expect(reasoningMessages).toHaveLength(1);
 		expect(reasoningMessages[0]?.content).toBe("Thinking...");
+		expect(reasoningMessages[0]?.meta?.hookEventName).toBe("reasoning_end");
 		expect(toolMessages).toHaveLength(1);
 		expect(toolMessages[0]?.meta?.hookEventName).toBe("tool_call_end");
 		expect(toolMessages[0]?.content).toContain("Tool: Read");

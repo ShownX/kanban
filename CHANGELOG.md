@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.62]
+
+- Fixed Cline chats on the home screen not resuming correctly from persisted history, causing conversation context to be lost
+- Fixed Cline thinking indicator hiding prematurely during active requests
+- Reasoning blocks now animate their collapse after finishing streaming
+- Fixed model selector not scrolling to the selected model when opened, and improved visual clarity of the selected model and reasoning effort states
+
 ## [0.1.61]
 
 - Added device code authorization for signing into Cline on remote systems

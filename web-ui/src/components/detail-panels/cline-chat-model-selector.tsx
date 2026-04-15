@@ -176,7 +176,9 @@ export function ClineChatModelSelector({
 		const nextActiveIndex = activeOptionIndex;
 		const frameId = window.requestAnimationFrame(() => {
 			const optionElement = optionRefs.current[nextActiveIndex] ?? null;
-			optionElement?.scrollIntoView({ block: "center" });
+			if (optionElement && typeof optionElement.scrollIntoView === "function") {
+				optionElement.scrollIntoView({ block: "center" });
+			}
 		});
 		return () => {
 			window.cancelAnimationFrame(frameId);

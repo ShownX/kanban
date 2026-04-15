@@ -47,112 +47,83 @@ interface UseClineChatPanelControllerResult {
 	handleCancelTurn: () => void;
 }
 
-const ASSISTANT_STREAM_ACTIVITY_GRACE_MS = 500;
-
-function isAssistantLikeIncomingMessage(message: ClineChatMessage | null): boolean {
-	return message?.role === "assistant" || message?.role === "reasoning";
+function isTurnResponseMessage(message: ClineChatMessage | null): boolean {
+	return (
+		message?.role === "assistant" ||
+		message?.role === "reasoning" ||
+		message?.role === "tool" ||
+		message?.role === "system" ||
+		message?.role === "status"
+	);
 }
 
-function getLatestAssistantLikeIncomingMessage(messages: ClineChatMessage[] | null): ClineChatMessage | null {
-	if (!messages || messages.length === 0) {
+function getTurnStartTimestamp(summary: RuntimeTaskSessionSummary | null): number | null {
+	if (summary?.state !== "running" || summary.latestHookActivity?.hookEventName !== "turn_start") {
 		return null;
 	}
-
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message && isAssistantLikeIncomingMessage(message)) {
-			return message;
-		}
-	}
-
-	return null;
+	return summary.lastHookAt ?? summary.updatedAt ?? null;
 }
 
-function hasVisibleStreamingMessage(
-	messages: ClineChatMessage[],
-	incomingMessage: ClineChatMessage | null,
-	hasRecentAssistantStreamActivity: boolean,
-): boolean {
-	if (hasRecentAssistantStreamActivity) {
-		return true;
-	}
-
-	if (incomingMessage) {
-		if (incomingMessage.role === "tool" && incomingMessage.meta?.hookEventName === "tool_call_start") {
-			return true;
-		}
-	}
-
-	return messages.some((message) => message.role === "tool" && message.meta?.hookEventName === "tool_call_start");
-}
-
-function hasFreshAssistantSummarySignal(summary: RuntimeTaskSessionSummary | null): boolean {
-	if (summary?.latestHookActivity?.hookEventName !== "assistant_delta" || summary.updatedAt === null) {
+function hasSummaryTurnResponse(summary: RuntimeTaskSessionSummary | null): boolean {
+	if (summary?.state !== "running") {
 		return false;
 	}
 
-	return Date.now() - summary.updatedAt < ASSISTANT_STREAM_ACTIVITY_GRACE_MS;
+	const hookEventName = summary.latestHookActivity?.hookEventName ?? null;
+	return hookEventName !== null && hookEventName !== "turn_start";
 }
 
-function useRecentAssistantStreamActivity(
+function isCurrentTurnResponseMessage(message: ClineChatMessage | null, turnStartTimestamp: number | null): boolean {
+	if (message === null || !isTurnResponseMessage(message)) {
+		return false;
+	}
+	if (turnStartTimestamp === null) {
+		return true;
+	}
+	return message.createdAt >= turnStartTimestamp;
+}
+
+function hasCurrentTurnResponseInMessages(
+	messages: ClineChatMessage[] | null,
+	turnStartTimestamp: number | null,
+): boolean {
+	return messages?.some((message) => isCurrentTurnResponseMessage(message, turnStartTimestamp)) ?? false;
+}
+
+function useHasSeenCurrentTurnResponse(
+	messages: ClineChatMessage[],
 	summary: RuntimeTaskSessionSummary | null,
 	incomingMessages: ClineChatMessage[] | null,
 	incomingMessage: ClineChatMessage | null,
 ): boolean {
-	const latestHookEventName = summary?.latestHookActivity?.hookEventName ?? null;
-	const latestAssistantLikeIncomingMessage = isAssistantLikeIncomingMessage(incomingMessage)
-		? incomingMessage
-		: getLatestAssistantLikeIncomingMessage(incomingMessages);
-	const [hasRecentIncomingAssistantActivity, setHasRecentIncomingAssistantActivity] = useState(
-		() => latestAssistantLikeIncomingMessage !== null,
-	);
-	const [hasRecentAssistantSummaryActivity, setHasRecentAssistantSummaryActivity] = useState(() =>
-		hasFreshAssistantSummarySignal(summary),
+	const turnStartTimestampFromSummary = getTurnStartTimestamp(summary);
+	const [turnStartTimestamp, setTurnStartTimestamp] = useState<number | null>(() => turnStartTimestampFromSummary);
+	const effectiveTurnStartTimestamp = turnStartTimestampFromSummary ?? turnStartTimestamp;
+	const hasIncomingResponse =
+		isCurrentTurnResponseMessage(incomingMessage, effectiveTurnStartTimestamp) ||
+		hasCurrentTurnResponseInMessages(incomingMessages, effectiveTurnStartTimestamp) ||
+		hasCurrentTurnResponseInMessages(messages, effectiveTurnStartTimestamp);
+	const hasSummaryResponse = hasSummaryTurnResponse(summary);
+	const [hasSeenCurrentTurnResponse, setHasSeenCurrentTurnResponse] = useState(
+		() => isTurnResponseMessage(incomingMessage) || hasSummaryResponse,
 	);
 
 	useEffect(() => {
-		if (!latestAssistantLikeIncomingMessage) {
-			setHasRecentIncomingAssistantActivity(false);
+		if (summary?.state !== "running") {
+			setTurnStartTimestamp(null);
+			setHasSeenCurrentTurnResponse(false);
 			return;
 		}
 
-		setHasRecentIncomingAssistantActivity(true);
-		const timeoutId = window.setTimeout(() => {
-			setHasRecentIncomingAssistantActivity(false);
-		}, ASSISTANT_STREAM_ACTIVITY_GRACE_MS);
-		return () => {
-			window.clearTimeout(timeoutId);
-		};
-	}, [
-		latestAssistantLikeIncomingMessage?.id,
-		latestAssistantLikeIncomingMessage?.role,
-		latestAssistantLikeIncomingMessage?.content,
-		latestAssistantLikeIncomingMessage?.meta?.hookEventName,
-	]);
-
-	useEffect(() => {
-		const summaryUpdatedAt = summary?.updatedAt ?? null;
-		if (latestHookEventName !== "assistant_delta" || summaryUpdatedAt === null) {
-			setHasRecentAssistantSummaryActivity(false);
-			return;
+		if (turnStartTimestampFromSummary !== null) {
+			setTurnStartTimestamp(turnStartTimestampFromSummary);
+			setHasSeenCurrentTurnResponse(hasIncomingResponse || hasSummaryResponse);
+		} else if (hasIncomingResponse || hasSummaryResponse) {
+			setHasSeenCurrentTurnResponse(true);
 		}
+	}, [hasIncomingResponse, hasSummaryResponse, summary?.state, turnStartTimestampFromSummary]);
 
-		const remainingMs = summaryUpdatedAt + ASSISTANT_STREAM_ACTIVITY_GRACE_MS - Date.now();
-		if (remainingMs <= 0) {
-			setHasRecentAssistantSummaryActivity(false);
-			return;
-		}
-
-		setHasRecentAssistantSummaryActivity(true);
-		const timeoutId = window.setTimeout(() => {
-			setHasRecentAssistantSummaryActivity(false);
-		}, remainingMs);
-		return () => {
-			window.clearTimeout(timeoutId);
-		};
-	}, [latestHookEventName, summary?.updatedAt]);
-
-	return hasRecentIncomingAssistantActivity || hasRecentAssistantSummaryActivity;
+	return hasSeenCurrentTurnResponse || hasIncomingResponse || hasSummaryResponse;
 }
 
 export function useClineChatPanelController({
@@ -188,14 +159,13 @@ export function useClineChatPanelController({
 		(reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0 &&
 		Boolean(onCommit) &&
 		Boolean(onOpenPr);
-	const hasRecentAssistantStreamActivity = useRecentAssistantStreamActivity(
+	const hasSeenCurrentTurnResponse = useHasSeenCurrentTurnResponse(
+		messages,
 		summary,
 		incomingMessages,
 		incomingMessage,
 	);
-	const showAgentProgressIndicator =
-		summary?.state === "running" &&
-		!hasVisibleStreamingMessage(messages, incomingMessage, hasRecentAssistantStreamActivity);
+	const showAgentProgressIndicator = summary?.state === "running" && !hasSeenCurrentTurnResponse;
 	const showActionFooter = showMoveToTrash && Boolean(onMoveToTrash);
 	const showCancelAutomaticAction = Boolean(cancelAutomaticActionLabel && onCancelAutomaticAction);
 

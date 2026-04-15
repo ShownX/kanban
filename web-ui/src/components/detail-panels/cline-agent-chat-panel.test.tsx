@@ -183,6 +183,8 @@ describe("ClineAgentChatPanel", () => {
 			await Promise.resolve();
 		});
 
+		const thinkingSpinner = container.querySelector('[data-testid="cline-thinking-spinner"]');
+		expect(thinkingSpinner?.textContent).toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/u);
 		expect(container.textContent).toContain("Thinking...");
 		expect(container.textContent).not.toContain("Cline chat");
 	});

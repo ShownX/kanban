@@ -553,6 +553,20 @@ describe("InMemoryClineTaskSessionService", () => {
 		expect(service.listMessages("task-1")).toEqual([]);
 	});
 
+	it("starts empty-prompt sessions idle until the user sends a message", async () => {
+		const { service } = createTrackedService();
+
+		const summary = await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "",
+		});
+
+		expect(summary.state).toBe("idle");
+		expect(summary.reviewReason).toBeNull();
+		expect(service.listMessages("task-1")).toEqual([]);
+	});
+
 	it("hydrates persisted chat history when resuming a task from trash", async () => {
 		const { service, runtime } = createTrackedService();
 		runtime.readPersistedTaskSessionMock.mockResolvedValue({

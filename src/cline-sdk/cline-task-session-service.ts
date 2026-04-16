@@ -332,6 +332,14 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		this.providerIdByTaskId.set(request.taskId, providerId);
 		const modelId = request.modelId?.trim() || SDK_DEFAULT_MODEL_ID;
 		const resolvedMode: RuntimeTaskSessionMode = request.startInPlanMode ? "act" : (request.mode ?? "act");
+		const normalizedPrompt = request.prompt.trim();
+		const hasRequestImages = Boolean(request.images && request.images.length > 0);
+		const initialState = request.resumeFromTrash
+			? "awaiting_review"
+			: normalizedPrompt.length > 0 || hasRequestImages
+				? "running"
+				: "idle";
+		const initialReviewReason = request.resumeFromTrash ? "attention" : null;
 		const shouldHydratePersistedHistory = request.resumeFromTrash || request.resumeFromPersistence;
 		const persistedResumeSnapshot = shouldHydratePersistedHistory
 			? await this.sessionRuntime.readPersistedTaskSession(request.taskId).catch(() => null)
@@ -339,22 +347,22 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 		const entry = persistedResumeSnapshot
 			? createTaskEntryFromPersistedSession(request.taskId, persistedResumeSnapshot.messages, {
-					state: request.resumeFromTrash ? "awaiting_review" : "running",
+					state: initialState,
 					mode: resolvedMode,
 					workspacePath: request.cwd,
 					startedAt: now(),
 					lastOutputAt: now(),
-					reviewReason: request.resumeFromTrash ? "attention" : null,
+					reviewReason: initialReviewReason,
 				})
 			: ({
 					summary: {
 						...createDefaultSummary(request.taskId),
-						state: request.resumeFromTrash ? "awaiting_review" : "running",
+						state: initialState,
 						mode: resolvedMode,
 						workspacePath: request.cwd,
 						startedAt: now(),
 						lastOutputAt: now(),
-						reviewReason: request.resumeFromTrash ? "attention" : null,
+						reviewReason: initialReviewReason,
 					},
 					messages: [],
 					activeAssistantMessageId: null,
@@ -364,9 +372,6 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 				} satisfies ClineTaskSessionEntry);
 		this.messageRepository.setTaskEntry(request.taskId, entry);
 		this.pendingTurnCancelTaskIds.delete(request.taskId);
-
-		const normalizedPrompt = request.prompt.trim();
-		const hasRequestImages = Boolean(request.images && request.images.length > 0);
 
 		if (!request.resumeFromTrash && (normalizedPrompt.length > 0 || hasRequestImages)) {
 			const message = createMessage(request.taskId, "user", normalizedPrompt, request.images);

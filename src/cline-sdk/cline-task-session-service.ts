@@ -268,6 +268,10 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			};
 		}
 
+		if (isHomeAgentSessionId(input.taskId) && !this.sessionRuntime.canRestartTaskSession(input.taskId)) {
+			throw new Error(`No previous Cline session config is available for task ${input.taskId}.`);
+		}
+
 		const persistedSnapshot = await this.sessionRuntime.readPersistedTaskSession(input.taskId);
 		const restartedSession = await this.sessionRuntime.restartTaskSession({
 			taskId: input.taskId,
@@ -553,6 +557,11 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		if (normalized.length === 0 && !hasImages) {
 			return null;
 		}
+		if (!this.sessionRuntime.getTaskSessionId(taskId)) {
+			if (isHomeAgentSessionId(taskId) && !this.sessionRuntime.canRestartTaskSession(taskId)) {
+				return null;
+			}
+		}
 		{
 			const message = createMessage(taskId, "user", normalized, images);
 			entry.messages.push(message);
@@ -658,6 +667,11 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		clearActiveTurnState(entry);
 
 		const effectiveMode: RuntimeTaskSessionMode = entry.summary.mode ?? "act";
+		if (!this.sessionRuntime.getTaskSessionId(taskId)) {
+			if (isHomeAgentSessionId(taskId) && !this.sessionRuntime.canRestartTaskSession(taskId)) {
+				return null;
+			}
+		}
 		try {
 			const { warnings } = await this.dispatchResolvedTaskInput({
 				taskId,

@@ -1,6 +1,6 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import { Check, ExternalLink, Pencil, Plus, X } from "lucide-react";
-import { type ReactElement, useMemo, useState } from "react";
+import { type ReactElement, type ReactNode, useMemo, useState } from "react";
 
 import {
 	buildClineAgentModelPickerOptions,
@@ -13,6 +13,7 @@ import {
 	type ClineProviderDialogMode,
 } from "@/components/shared/cline-add-provider-dialog";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import type {
 	AddClineProviderInput,
 	UpdateClineProviderInput,
@@ -53,6 +54,7 @@ export function ClineSetupSection({
 	workspaceId = null,
 	showHeading = true,
 	showMcpSettings = true,
+	accountSection = null,
 	onError,
 	onSaved,
 }: {
@@ -62,6 +64,7 @@ export function ClineSetupSection({
 	workspaceId?: string | null;
 	showHeading?: boolean;
 	showMcpSettings?: boolean;
+	accountSection?: ReactNode;
 	onError?: (message: string | null) => void;
 	onSaved?: () => void;
 }): ReactElement {
@@ -336,19 +339,19 @@ export function ClineSetupSection({
 						</div>
 						<div className="min-w-0">
 							<p className="text-text-secondary text-[12px] mt-0 mb-1">Auth mode</p>
-							<select
+							<NativeSelect
+								fill
 								value={controller.awsAuthentication}
 								onChange={(event) =>
 									controller.setAwsAuthentication(event.target.value as "" | "iam" | "api-key" | "profile")
 								}
 								disabled={controlsDisabled}
-								className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary focus:border-border-focus focus:outline-none"
 							>
 								<option value="">Auto</option>
 								<option value="iam">IAM</option>
 								<option value="api-key">Access keys</option>
 								<option value="profile">Profile</option>
-							</select>
+							</NativeSelect>
 						</div>
 						<div className="min-w-0">
 							<p className="text-text-secondary text-[12px] mt-0 mb-1">AWS profile</p>
@@ -461,6 +464,8 @@ export function ClineSetupSection({
 					</>
 				) : null}
 			</div>
+			{accountSection ? <div className="mt-4">{accountSection}</div> : null}
+
 			<div className="mt-4">
 				<p className="text-text-primary font-semibold text-[12px] mt-0 mb-2">Model</p>
 				<div
@@ -611,7 +616,8 @@ export function ClineSetupSection({
 										</div>
 										<div className="min-w-0">
 											<p className="text-text-secondary text-[12px] mt-0 mb-1">Transport</p>
-											<select
+											<NativeSelect
+												fill
 												value={server.type}
 												onChange={(event) => {
 													const nextType = event.target.value as RuntimeClineMcpServer["type"];
@@ -633,12 +639,11 @@ export function ClineSetupSection({
 													});
 												}}
 												disabled={mcpControlsDisabled}
-												className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary focus:border-border-focus focus:outline-none"
 											>
 												<option value="streamableHttp">HTTP</option>
 												<option value="sse">SSE</option>
 												<option value="stdio">Stdio</option>
-											</select>
+											</NativeSelect>
 										</div>
 									</div>
 

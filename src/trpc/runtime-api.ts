@@ -16,6 +16,7 @@ import type { RuntimeConfigState } from "../config/runtime-config";
 import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
 import type { RuntimeCommandRunResponse } from "../core/api-contract";
 import {
+	parseClineAccountSwitchRequest,
 	parseClineAddProviderRequest,
 	parseClineMcpOAuthRequest,
 	parseClineMcpSettingsSaveRequest,
@@ -36,6 +37,7 @@ import {
 	parseTaskSessionStopRequest,
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
+import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -156,7 +158,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				if (body.resumeFromTrash) {
 					deps.broadcastTaskChatCleared?.(workspaceScope.workspaceId, body.taskId);
 				}
-				const requestedTaskMode = body.mode ?? (body.startInPlanMode ? "plan" : "act");
+				const requestedClineTaskMode = body.mode ?? "act";
 				const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
 				const taskCwd = isHomeAgentSessionId(body.taskId)
 					? workspaceScope.workspacePath
@@ -167,14 +169,24 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						});
 				const shouldCaptureTurnCheckpoint = !body.resumeFromTrash && !isHomeAgentSessionId(body.taskId);
 
-				// When restoring from trash, resume with the original agent so conversation
-				// history is preserved. Terminal agents have their agentId preserved in the
-				// hydrated session summary; Cline tasks are detected via persisted SDK sessions.
+				// Per-task config source-of-truth precedence:
+				//
+				// agentId resolution (which agent runtime to use):
+				//   1. previousTerminalAgentId — persisted in the terminal session summary from
+				//      the last run; ensures trash-restore resumes with the same agent runtime.
+				//   2. body.agentId — the card's current per-task agent override.
+				//   3. scopedRuntimeConfig.selectedAgentId — the workspace-level default.
+				//
+				// clineSettings (which LLM model and reasoning profile the Cline agent uses):
+				//   Always taken from the card's current override object. There is no
+				//   session-level persistence for these;
+				//   if the user changes the model on the card, the next session launch
+				//   (including trash-restore) uses the updated values.
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
 				const previousTerminalAgentId = body.resumeFromTrash
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
-				const effectiveAgentId = previousTerminalAgentId ?? scopedRuntimeConfig.selectedAgentId;
+				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
 				let useClinePath = effectiveAgentId === "cline";
 				const shouldProbePersistedClineSession =
 					body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;
@@ -192,17 +204,29 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 
 				if (useClinePath) {
-					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig();
+					const hasTaskLevelClineSettingsOverride = body.clineSettings !== undefined;
+					const clineLaunchConfig = await clineProviderService.resolveLaunchConfig({
+						providerIdOverride: body.clineSettings?.providerId ?? undefined,
+						modelIdOverride: body.clineSettings?.modelId ?? undefined,
+						...(hasTaskLevelClineSettingsOverride
+							? {
+									reasoningEffortOverride: body.clineSettings?.reasoningEffort ?? null,
+								}
+							: {}),
+					});
 					const clineTaskSessionService = await deps.getScopedClineTaskSessionService(workspaceScope);
+					const resolvedClineTitle = resolveTaskTitle(body.taskTitle?.trim(), body.prompt);
 					const summary = await clineTaskSessionService.startTaskSession({
 						taskId: body.taskId,
 						cwd: taskCwd,
 						prompt: body.prompt,
+						taskTitle: resolvedClineTitle.length > 0 ? resolvedClineTitle : undefined,
 						images: body.images,
 						resumeFromTrash: body.resumeFromTrash,
 						providerId: clineLaunchConfig.providerId,
 						modelId: clineLaunchConfig.modelId,
-						mode: requestedTaskMode,
+						mode: requestedClineTaskMode,
+						startInPlanMode: body.startInPlanMode,
 						apiKey: clineLaunchConfig.apiKey,
 						baseUrl: clineLaunchConfig.baseUrl,
 						reasoningEffort: clineLaunchConfig.reasoningEffort,
@@ -467,6 +491,16 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		},
 		getFeaturebaseToken: async (_workspaceScope) => {
 			return await clineProviderService.getFeaturebaseToken();
+		},
+		getClineAccountBalance: async (_workspaceScope) => {
+			return await clineProviderService.getClineAccountBalance();
+		},
+		getClineAccountOrganizations: async (_workspaceScope) => {
+			return await clineProviderService.getClineAccountOrganizations();
+		},
+		switchClineAccount: async (_workspaceScope, input) => {
+			const body = parseClineAccountSwitchRequest(input);
+			return await clineProviderService.switchClineAccount(body.organizationId);
 		},
 		getClineProviderModels: async (_workspaceScope, input) => {
 			const body = parseClineProviderModelsRequest(input);

@@ -21,6 +21,7 @@ function createBoard(taskId: string): BoardData {
 				cards: [
 					{
 						id: taskId,
+						title: `Prompt ${taskId}`,
 						prompt: `Prompt ${taskId}`,
 						startInPlanMode: false,
 						autoReviewEnabled: false,
@@ -36,6 +37,8 @@ function createBoard(taskId: string): BoardData {
 			{ id: "trash", title: "Trash", cards: [] },
 		],
 		dependencies: [],
+		roadmap: [],
+		roadmapAnnotations: [],
 	};
 }
 

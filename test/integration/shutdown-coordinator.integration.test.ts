@@ -48,6 +48,7 @@ function initGitRepository(path: string): void {
 function createCard(taskId: string) {
 	return {
 		id: taskId,
+		title: `Task ${taskId}`,
 		prompt: `Task ${taskId}`,
 		startInPlanMode: false,
 		baseRef: "main",
@@ -73,6 +74,8 @@ function createBoard(taskIds: { inProgress?: string[]; review?: string[] }): Run
 			{ id: "trash", title: "Trash", cards: [] },
 		],
 		dependencies: [],
+		roadmap: [],
+		roadmapAnnotations: [],
 	};
 }
 

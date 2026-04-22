@@ -20,6 +20,7 @@ import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import type {
 	RuntimeAgentId,
+	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
@@ -243,7 +244,16 @@ function DiffModeButton({
 			variant="ghost"
 			size="sm"
 			onClick={onClick}
-			className={cn("h-5 rounded-sm text-xs", active && "bg-surface-3 text-text-primary")}
+			aria-pressed={active}
+			className="h-5 rounded-sm text-xs"
+			style={
+				active
+					? {
+							backgroundColor: "var(--color-surface-3)",
+							color: "var(--color-text-primary)",
+						}
+					: undefined
+			}
 		>
 			{children}
 		</Button>
@@ -315,6 +325,7 @@ export function CardDetailView({
 	editingTaskId,
 	inlineTaskEditor,
 	onEditTask,
+	onSaveTaskTitle,
 	onCommitTask,
 	onOpenPrTask,
 	onAgentCommitTask,
@@ -353,6 +364,7 @@ export function CardDetailView({
 	onBottomTerminalToggleExpand,
 	isDocumentVisible = true,
 	onClineSettingsSaved,
+	onTaskClineSettingsChanged,
 }: {
 	selection: CardSelection;
 	currentProjectId: string | null;
@@ -371,6 +383,7 @@ export function CardDetailView({
 	editingTaskId?: string | null;
 	inlineTaskEditor?: ReactNode;
 	onEditTask?: (card: BoardCard) => void;
+	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
 	onAgentCommitTask?: (taskId: string) => void;
@@ -413,6 +426,11 @@ export function CardDetailView({
 	onBottomTerminalToggleExpand?: () => void;
 	isDocumentVisible?: boolean;
 	onClineSettingsSaved?: () => void;
+	onTaskClineSettingsChanged?: (settings: {
+		providerId: string;
+		modelId: string;
+		reasoningEffort: RuntimeClineReasoningEffort | "";
+	}) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
@@ -435,6 +453,8 @@ export function CardDetailView({
 	const { startDrag: startAgentPanelResize } = useResizeDrag();
 	const { startDrag: startDetailDiffResize } = useResizeDrag();
 	const detailLayoutRef = useRef<HTMLDivElement | null>(null);
+	const hasExplicitTaskClineSettings =
+		selection.card.agentId === "cline" || selection.card.clineSettings !== undefined;
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 	const detailDiffRowRef = useRef<HTMLDivElement | null>(null);
 	const clineAgentChatPanelRef = useRef<ClineAgentChatPanelHandle | null>(null);
@@ -491,7 +511,8 @@ export function CardDetailView({
 	const detailDiffFileTreePanelFlex = `0 0 ${detailDiffFileTreePanelPercent}`;
 	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
-	const showClineAgentChatPanel = isNativeClineAgentSelected(sessionSummary?.agentId ?? selectedAgentId);
+	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
+	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
 		if (!runtimeFiles || runtimeFiles.length === 0) {
 			return [];
@@ -615,10 +636,14 @@ export function CardDetailView({
 			taskId={selection.card.id}
 			summary={sessionSummary}
 			taskColumnId={selection.column.id}
-			defaultMode={selection.card.startInPlanMode ? "plan" : "act"}
+			defaultMode="act"
+			showComposerModeToggle={false}
 			workspaceId={currentProjectId}
 			runtimeConfig={runtimeConfig}
+			taskClineSettings={selection.card.clineSettings}
+			taskHasExplicitClineSettings={hasExplicitTaskClineSettings}
 			onClineSettingsSaved={onClineSettingsSaved}
+			onTaskClineSettingsChanged={onTaskClineSettingsChanged}
 			onSendMessage={onSendClineChatMessage}
 			onCancelTurn={onCancelClineChatTurn}
 			onLoadMessages={onLoadClineChatMessages}
@@ -785,6 +810,7 @@ export function CardDetailView({
 							editingTaskId={editingTaskId}
 							inlineTaskEditor={inlineTaskEditor}
 							onEditTask={onEditTask}
+							onSaveTaskTitle={onSaveTaskTitle}
 							onCommitTask={onCommitTask}
 							onOpenPrTask={onOpenPrTask}
 							onMoveToTrashTask={onMoveReviewCardToTrash}
@@ -793,6 +819,7 @@ export function CardDetailView({
 							openPrTaskLoadingById={openPrTaskLoadingById}
 							moveToTrashLoadingById={moveToTrashLoadingById}
 							panelWidth="100%"
+							defaultClineModelId={runtimeConfig?.clineProviderSettings?.modelId ?? null}
 						/>
 					</div>
 					<ResizeHandle

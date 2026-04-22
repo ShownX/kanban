@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+	type RuntimeClineAccountSwitchRequest,
 	type RuntimeClineAddProviderRequest,
 	type RuntimeClineMcpOAuthRequest,
 	type RuntimeClineMcpSettingsSaveRequest,
@@ -10,6 +11,7 @@ import {
 	type RuntimeClineUpdateProviderRequest,
 	type RuntimeCommandRunRequest,
 	type RuntimeConfigSaveRequest,
+	type RuntimeDirectoryListRequest,
 	type RuntimeGitCheckoutRequest,
 	type RuntimeHookIngestRequest,
 	type RuntimeProjectAddRequest,
@@ -30,6 +32,7 @@ import {
 	type RuntimeWorkspaceStateSaveRequest,
 	type RuntimeWorktreeDeleteRequest,
 	type RuntimeWorktreeEnsureRequest,
+	runtimeClineAccountSwitchRequestSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineMcpOAuthRequestSchema,
 	runtimeClineMcpSettingsSaveRequestSchema,
@@ -39,6 +42,7 @@ import {
 	runtimeClineUpdateProviderRequestSchema,
 	runtimeCommandRunRequestSchema,
 	runtimeConfigSaveRequestSchema,
+	runtimeDirectoryListRequestSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeProjectAddRequestSchema,
@@ -174,12 +178,14 @@ export function parseWorkspaceStateSaveRequest(value: unknown): RuntimeWorkspace
 
 export function parseProjectAddRequest(value: unknown): RuntimeProjectAddRequest {
 	const parsed = parseWithSchema(runtimeProjectAddRequestSchema, value);
-	const path = parsed.path.trim();
-	if (!path) {
-		throw new Error("Project path cannot be empty.");
+	const path = parsed.path?.trim() || undefined;
+	const gitUrl = parsed.gitUrl?.trim() || undefined;
+	if (!path && !gitUrl) {
+		throw new Error("Either path or gitUrl is required.");
 	}
 	return {
 		path,
+		gitUrl,
 		initializeGit: parsed.initializeGit,
 	};
 }
@@ -578,4 +584,12 @@ export function parseTerminalWsClientMessage(value: unknown): RuntimeTerminalWsC
 		return null;
 	}
 	return parsed.data;
+}
+
+export function parseDirectoryListRequest(value: unknown): RuntimeDirectoryListRequest {
+	return parseWithSchema(runtimeDirectoryListRequestSchema, value);
+}
+
+export function parseClineAccountSwitchRequest(value: unknown): RuntimeClineAccountSwitchRequest {
+	return parseWithSchema(runtimeClineAccountSwitchRequestSchema, value);
 }

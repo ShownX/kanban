@@ -27,6 +27,7 @@ function createBoard(title: string): RuntimeBoardData {
 				cards: [
 					{
 						id: "task-1",
+						title: title,
 						prompt: title,
 						startInPlanMode: false,
 						baseRef: "main",
@@ -40,6 +41,8 @@ function createBoard(title: string): RuntimeBoardData {
 			{ id: "trash", title: "Trash", cards: [] },
 		],
 		dependencies: [],
+		roadmap: [],
+		roadmapAnnotations: [],
 	};
 }
 

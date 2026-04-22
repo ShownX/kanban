@@ -15,6 +15,7 @@ function createBoard(): BoardData {
 				cards: [
 					{
 						id: "task-1",
+						title: "Task 1",
 						prompt: "Task 1",
 						startInPlanMode: false,
 						autoReviewEnabled: false,
@@ -30,6 +31,8 @@ function createBoard(): BoardData {
 			{ id: "trash", title: "Trash", cards: [] },
 		],
 		dependencies: [],
+		roadmap: [],
+		roadmapAnnotations: [],
 	};
 }
 

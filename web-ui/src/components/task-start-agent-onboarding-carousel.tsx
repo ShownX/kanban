@@ -300,10 +300,10 @@ function resolveInstallInstructions(agentId: RuntimeAgentId): string {
 		return "OpenAI's coding agent CLI with access to the latest GPT models.";
 	}
 	if (agentId === "droid") {
-		return "Factory's coding agent with access to the latest frontier models";
+		return "Factory's coding agent with access to the latest frontier models.";
 	}
 	if (agentId === "kiro") {
-		return "Amazon's AI coding agent CLI powered by multiple foundation models.";
+		return "Amazon's coding agent with access to the latest frontier models.";
 	}
 	return "Install from the official docs.";
 }

@@ -18,9 +18,11 @@ import { ClineChatComposer } from "@/components/detail-panels/cline-chat-compose
 import { ClineChatMessageItem } from "@/components/detail-panels/cline-chat-message-item";
 import {
 	buildClineAgentModelPickerOptions,
-	formatClineSelectedModelButtonText,
+	buildClineSelectedModelButtonText,
+	getClineReasoningEnabledModelIds,
 } from "@/components/detail-panels/cline-model-picker-options";
 import { Button } from "@/components/ui/button";
+import { Link } from "@/components/ui/link";
 import { Spinner } from "@/components/ui/spinner";
 import { ShimmeringText } from "@/components/ui/text-shimmer";
 import { useClineChatPanelController } from "@/hooks/use-cline-chat-panel-controller";
@@ -30,6 +32,7 @@ import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-
 import type {
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
+	RuntimeTaskClineSettings,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 } from "@/runtime/types";
@@ -59,14 +62,9 @@ const ClineCreditLimitNotice = React.memo(function ClineCreditLimitNotice() {
 			<AlertTriangle size={14} className="mt-0.5 shrink-0" />
 			<p className="m-0 min-w-0">
 				Out of Cline credits.{" "}
-				<a
-					href={CLINE_BUY_CREDITS_URL}
-					target="_blank"
-					rel="noreferrer"
-					className="text-accent underline-offset-2 hover:text-accent-hover hover:underline"
-				>
+				<Link href={CLINE_BUY_CREDITS_URL} external>
 					Buy more credits
-				</a>{" "}
+				</Link>{" "}
 				to continue.
 			</p>
 		</div>
@@ -87,7 +85,14 @@ export interface ClineAgentChatPanelProps {
 	showComposerModeToggle?: boolean;
 	workspaceId?: string | null;
 	runtimeConfig?: RuntimeConfigResponse | null;
+	taskClineSettings?: RuntimeTaskClineSettings;
+	taskHasExplicitClineSettings?: boolean;
 	onClineSettingsSaved?: () => void;
+	onTaskClineSettingsChanged?: (settings: {
+		providerId: string;
+		modelId: string;
+		reasoningEffort: RuntimeClineReasoningEffort | "";
+	}) => void;
 	onSendMessage?: (
 		taskId: string,
 		text: string,
@@ -119,7 +124,10 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			showComposerModeToggle = true,
 			workspaceId = null,
 			runtimeConfig = null,
+			taskClineSettings,
+			taskHasExplicitClineSettings = false,
 			onClineSettingsSaved,
+			onTaskClineSettingsChanged,
 			onSendMessage,
 			onCancelTurn,
 			onLoadMessages,
@@ -174,7 +182,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 		const [composerError, setComposerError] = useState<string | null>(null);
 		const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
 		const [isSavingModel, setIsSavingModel] = useState(false);
-		const [isCreditLimitNoticeVisible, setIsCreditLimitNoticeVisible] = useState(false);
+		const isCreditLimitNoticeVisible = summary?.latestHookActivity?.notificationType === "credit_limit";
 		const [mode, setMode] = useState<RuntimeTaskSessionMode>(() => {
 			const persistedMode = modeByTaskIdRef.current.get(taskId);
 			return persistedMode ?? summary?.mode ?? defaultMode;
@@ -185,6 +193,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			workspaceId,
 			selectedAgentId: "cline",
 			config: runtimeConfig,
+			taskClineSettings,
 		});
 
 		const modelPickerOptions = useMemo(
@@ -198,34 +207,29 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			[clineSettings.modelId, clineSettings.providerModels],
 		);
 		const reasoningEnabledModelIds = useMemo(
-			() => clineSettings.providerModels.filter((model) => model.supportsReasoningEffort).map((model) => model.id),
+			() => getClineReasoningEnabledModelIds(clineSettings.providerModels),
 			[clineSettings.providerModels],
 		);
 
-		const selectedModelButtonText = useMemo(() => {
-			if (isSavingModel) {
-				return "Saving model...";
-			}
-			if (clineSettings.isLoadingProviderModels) {
-				return "Loading models...";
-			}
-			const selectedOption = modelOptions.find((option) => option.value === clineSettings.modelId);
-			const trimmedModelId = clineSettings.modelId.trim();
-			const selectedModelName =
-				selectedOption?.label ?? (trimmedModelId.length > 0 ? trimmedModelId : "Select model");
-			return formatClineSelectedModelButtonText({
-				modelName: selectedModelName,
-				reasoningEffort: clineSettings.reasoningEffort,
-				showReasoningEffort: clineSettings.selectedModelSupportsReasoningEffort,
-			});
-		}, [
-			clineSettings.isLoadingProviderModels,
-			clineSettings.modelId,
-			clineSettings.reasoningEffort,
-			clineSettings.selectedModelSupportsReasoningEffort,
-			isSavingModel,
-			modelOptions,
-		]);
+		const selectedModelButtonText = useMemo(
+			() =>
+				buildClineSelectedModelButtonText({
+					modelOptions,
+					selectedModelId: clineSettings.modelId,
+					reasoningEffort: clineSettings.reasoningEffort,
+					showReasoningEffort: clineSettings.selectedModelSupportsReasoningEffort,
+					isModelLoading: clineSettings.isLoadingProviderModels,
+					isModelSaving: isSavingModel,
+				}),
+			[
+				clineSettings.isLoadingProviderModels,
+				clineSettings.modelId,
+				clineSettings.reasoningEffort,
+				clineSettings.selectedModelSupportsReasoningEffort,
+				isSavingModel,
+				modelOptions,
+			],
+		);
 
 		const panelError = composerError ?? error;
 		const attachmentWarningMessage =
@@ -273,21 +277,12 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 		}, [taskId]);
 
 		useEffect(() => {
-			setIsCreditLimitNoticeVisible(false);
-		}, [taskId]);
-
-		useEffect(() => {
 			const persistedMode = modeByTaskIdRef.current.get(taskId);
 			const nextMode = persistedMode ?? summary?.mode ?? defaultMode;
 			modeByTaskIdRef.current.set(taskId, nextMode);
 			setMode(nextMode);
 			setDraftImages([]);
 		}, [defaultMode, summary?.mode, taskId]);
-
-		useEffect(() => {
-			const isCreditLimitError = summary?.latestHookActivity?.notificationType === "credit_limit";
-			setIsCreditLimitNoticeVisible(isCreditLimitError);
-		}, [summary?.latestHookActivity?.notificationType]);
 
 		const handleModeChange = useCallback(
 			(nextMode: RuntimeTaskSessionMode) => {
@@ -315,12 +310,22 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 				setComposerError(null);
 				setIsSavingModel(true);
 				try {
+					const nextModelId = overrides?.modelId ?? clineSettings.modelId;
+					const nextReasoningEffort =
+						overrides && "reasoningEffort" in overrides
+							? overrides.reasoningEffort || ""
+							: clineSettings.reasoningEffort;
+					if (taskHasExplicitClineSettings) {
+						onTaskClineSettingsChanged?.({
+							providerId: clineSettings.providerId,
+							modelId: nextModelId,
+							reasoningEffort: nextReasoningEffort,
+						});
+						return true;
+					}
 					const result = await clineSettings.saveProviderSettings({
-						modelId: overrides?.modelId ?? clineSettings.modelId,
-						reasoningEffort:
-							overrides && "reasoningEffort" in overrides
-								? overrides.reasoningEffort || null
-								: clineSettings.reasoningEffort || null,
+						modelId: nextModelId,
+						reasoningEffort: nextReasoningEffort || null,
 					});
 					if (!result.ok) {
 						setComposerError(result.message ?? "Could not save Cline model settings.");
@@ -332,7 +337,7 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					setIsSavingModel(false);
 				}
 			},
-			[clineSettings, onClineSettingsSaved, workspaceId],
+			[clineSettings, onClineSettingsSaved, onTaskClineSettingsChanged, taskHasExplicitClineSettings, workspaceId],
 		);
 
 		const handleSelectModel = useCallback(

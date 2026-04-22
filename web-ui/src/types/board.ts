@@ -1,4 +1,14 @@
-import type { RuntimeBoardColumnId, RuntimeTaskAutoReviewMode, RuntimeTaskImage } from "@/runtime/types";
+import type {
+	RuntimeAgentId,
+	RuntimeBoardColumnId,
+	RuntimeRoadmapAnnotation,
+	RuntimeRoadmapComment,
+	RuntimeRoadmapItem,
+	RuntimeRoadmapItemStatus,
+	RuntimeTaskAutoReviewMode,
+	RuntimeTaskClineSettings,
+	RuntimeTaskImage,
+} from "@/runtime/types";
 
 export type BoardColumnId = RuntimeBoardColumnId;
 
@@ -38,11 +48,14 @@ export function getTaskAutoReviewCancelButtonLabel(mode: TaskAutoReviewMode | nu
 
 export interface BoardCard {
 	id: string;
+	title: string;
 	prompt: string;
 	startInPlanMode: boolean;
 	autoReviewEnabled?: boolean;
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
+	agentId?: RuntimeAgentId;
+	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
 	createdAt: number;
 	updatedAt: number;
@@ -64,7 +77,14 @@ export interface BoardDependency {
 export interface BoardData {
 	columns: BoardColumn[];
 	dependencies: BoardDependency[];
+	roadmap: RoadmapItem[];
+	roadmapAnnotations: RoadmapAnnotation[];
 }
+
+export type RoadmapItemStatus = RuntimeRoadmapItemStatus;
+export type RoadmapComment = RuntimeRoadmapComment;
+export type RoadmapItem = RuntimeRoadmapItem;
+export type RoadmapAnnotation = RuntimeRoadmapAnnotation;
 
 export interface ReviewTaskWorkspaceSnapshot {
 	taskId: string;

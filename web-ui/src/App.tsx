@@ -1,10 +1,12 @@
 // Main React composition root for the browser app.
 // Keep this file focused on wiring top-level hooks and surfaces together, and
 // push runtime-specific orchestration down into hooks and service modules.
+
+import { createHomeAgentSessionId } from "@runtime-home-agent-session";
 import { FolderOpen } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
+import { AddProjectDialog } from "@/components/add-project-dialog";
 import { notifyError, showAppToast } from "@/components/app-toaster";
 import { CardDetailView } from "@/components/card-detail-view";
 import { ClearTrashDialog } from "@/components/clear-trash-dialog";
@@ -13,6 +15,7 @@ import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-pa
 import { GitHistoryView } from "@/components/git-history-view";
 import { KanbanBoard } from "@/components/kanban-board";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
+import { RoadmapView } from "@/components/roadmap-panel";
 import { RuntimeSettingsDialog, type RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { StartupOnboardingDialog } from "@/components/startup-onboarding-dialog";
 import { TaskCreateDialog } from "@/components/task-create-dialog";
@@ -23,8 +26,6 @@ import {
 	AlertDialog,
 	AlertDialogAction,
 	AlertDialogBody,
-	AlertDialogCancel,
-	AlertDialogDescription,
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
@@ -64,12 +65,12 @@ import {
 	selectLatestTaskChatMessageForTask,
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
-import type { RuntimeTaskSessionSummary } from "@/runtime/types";
+import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
-import { findCardSelection } from "@/state/board-state";
+import { applyTaskDetailClineSettingsChange, findCardSelection } from "@/state/board-state";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -89,6 +90,10 @@ export default function App(): ReactElement {
 	const [homeSidebarSection, setHomeSidebarSection] = useState<"projects" | "agent">("projects");
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
+	const [isRoadmapOpen, setIsRoadmapOpen] = useState(() => localStorage.getItem("kanban.roadmap-open") === "true");
+	useEffect(() => {
+		localStorage.setItem("kanban.roadmap-open", isRoadmapOpen ? "true" : "false");
+	}, [isRoadmapOpen]);
 	const [pendingTaskStartAfterEditId, setPendingTaskStartAfterEditId] = useState<string | null>(null);
 	const taskEditorResetRef = useRef<() => void>(() => {});
 	const lastStreamErrorRef = useRef<string | null>(null);
@@ -117,11 +122,11 @@ export default function App(): ReactElement {
 		isProjectSwitching,
 		handleSelectProject,
 		handleAddProject,
-		handleConfirmInitializeGitProject,
-		handleCancelInitializeGitProject,
+		handleAddProjectSuccess,
 		handleRemoveProject,
-		pendingGitInitializationPath,
-		isInitializingGitProject,
+		isAddProjectDialogOpen,
+		setIsAddProjectDialogOpen,
+		pendingNativeGitInitPath,
 		resetProjectNavigationState,
 	} = useProjectNavigation({
 		onProjectSwitchStart: handleProjectSwitchStart,
@@ -136,7 +141,7 @@ export default function App(): ReactElement {
 		isLoading: isRuntimeProjectConfigLoading,
 		refresh: refreshRuntimeProjectConfig,
 	} = useRuntimeProjectConfig(currentProjectId);
-	const { isBlocked: isKanbanAccessBlocked } = useKanbanAccessGate({
+	const { isBlocked: isKanbanAccessBlocked, refresh: refreshKanbanAccess } = useKanbanAccessGate({
 		workspaceId: currentProjectId,
 	});
 	const isTaskAgentReady = isTaskAgentSetupSatisfied(runtimeProjectConfig);
@@ -286,6 +291,8 @@ export default function App(): ReactElement {
 
 	const {
 		isInlineTaskCreateOpen,
+		newTaskTitle,
+		setNewTaskTitle,
 		newTaskPrompt,
 		setNewTaskPrompt,
 		newTaskImages,
@@ -299,7 +306,13 @@ export default function App(): ReactElement {
 		isNewTaskStartInPlanModeDisabled,
 		newTaskBranchRef,
 		setNewTaskBranchRef,
+		newTaskAgentId,
+		setNewTaskAgentId,
+		newTaskClineSettings,
+		setNewTaskClineSettings,
 		editingTaskId,
+		editTaskTitle,
+		setEditTaskTitle,
 		editTaskPrompt,
 		setEditTaskPrompt,
 		editTaskImages,
@@ -313,12 +326,17 @@ export default function App(): ReactElement {
 		isEditTaskStartInPlanModeDisabled,
 		editTaskBranchRef,
 		setEditTaskBranchRef,
+		editTaskAgentId,
+		setEditTaskAgentId,
+		editTaskClineSettings,
+		setEditTaskClineSettings,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
 		handleCancelEditTask,
 		handleSaveEditedTask,
 		handleSaveAndStartEditedTask,
+		handleSaveTaskTitle,
 		handleCreateTask,
 		handleCreateTasks,
 		resetTaskEditorState,
@@ -704,6 +722,44 @@ export default function App(): ReactElement {
 		selectedCard?.card.id,
 		latestTaskChatMessage,
 	);
+	const defaultTaskClineProviderId =
+		runtimeProjectConfig?.clineProviderSettings?.providerId ??
+		runtimeProjectConfig?.clineProviderSettings?.oauthProvider ??
+		null;
+	const handleClineTaskSettingsChangedForTask = useCallback(
+		({
+			providerId,
+			modelId,
+			reasoningEffort,
+		}: {
+			providerId: string;
+			modelId: string;
+			reasoningEffort: RuntimeClineReasoningEffort | "";
+		}) => {
+			if (!selectedCard) {
+				return;
+			}
+			const taskId = selectedCard.card.id;
+			setBoard((currentBoard) => {
+				const result = applyTaskDetailClineSettingsChange(
+					currentBoard,
+					taskId,
+					{
+						providerId,
+						modelId,
+						reasoningEffort,
+					},
+					{
+						providerId: defaultTaskClineProviderId,
+						modelId: runtimeProjectConfig?.clineProviderSettings?.modelId ?? null,
+					},
+				);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
+	);
+
 	const handleCreateDialogOpenChange = useCallback(
 		(open: boolean) => {
 			if (!open) {
@@ -715,6 +771,8 @@ export default function App(): ReactElement {
 
 	const inlineTaskEditor = editingTaskId ? (
 		<TaskInlineCreateCard
+			title={editTaskTitle}
+			onTitleChange={setEditTaskTitle}
 			prompt={editTaskPrompt}
 			onPromptChange={setEditTaskPrompt}
 			images={editTaskImages}
@@ -733,6 +791,14 @@ export default function App(): ReactElement {
 			branchRef={editTaskBranchRef}
 			branchOptions={createTaskBranchOptions}
 			onBranchRefChange={setEditTaskBranchRef}
+			agentId={editTaskAgentId}
+			onAgentIdChange={setEditTaskAgentId}
+			clineSettings={editTaskClineSettings}
+			onClineSettingsChange={setEditTaskClineSettings}
+			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+			defaultProviderId={defaultTaskClineProviderId}
+			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+			defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
 			mode="edit"
 			idPrefix={`inline-edit-task-${editingTaskId}`}
 		/>
@@ -821,6 +887,7 @@ export default function App(): ReactElement {
 						runningShortcutLabel={runningShortcutLabel}
 						onRunShortcut={handleRunShortcut}
 						onCreateFirstShortcut={currentProjectId ? handleCreateShortcut : undefined}
+						onOpenRoadmap={() => setIsRoadmapOpen(true)}
 						openTargetOptions={openTargetOptions}
 						selectedOpenTargetId={selectedOpenTargetId}
 						onSelectOpenTarget={onSelectOpenTarget}
@@ -862,7 +929,27 @@ export default function App(): ReactElement {
 							) : (
 								<div className="flex flex-1 flex-col min-h-0 min-w-0">
 									<div className="flex flex-1 min-h-0 min-w-0">
-										{isGitHistoryOpen ? (
+										{isRoadmapOpen ? (
+											<RoadmapView
+												board={board}
+												onBoardChange={setBoard}
+												onClose={() => setIsRoadmapOpen(false)}
+												workspaceId={currentProjectId}
+												onRequestUpdate={(prompt) => {
+													if (!currentProjectId || !runtimeProjectConfig) return;
+													const agentId = runtimeProjectConfig.selectedAgentId;
+													const homeTaskId = createHomeAgentSessionId(currentProjectId, agentId);
+													if (agentId === "cline") {
+														void sendTaskChatMessage(homeTaskId, prompt);
+													} else {
+														void sendTaskSessionInput(homeTaskId, prompt, {
+															mode: "paste",
+															appendNewline: false,
+														}).then(() => sendTaskSessionInput(homeTaskId, "\r"));
+													}
+												}}
+											/>
+										) : isGitHistoryOpen ? (
 											<GitHistoryView
 												workspaceId={currentProjectId}
 												gitHistory={gitHistory}
@@ -887,6 +974,7 @@ export default function App(): ReactElement {
 												editingTaskId={editingTaskId}
 												inlineTaskEditor={inlineTaskEditor}
 												onEditTask={handleOpenEditTask}
+												onSaveTaskTitle={handleSaveTaskTitle}
 												onCommitTask={handleCommitTask}
 												onOpenPrTask={handleOpenPrTask}
 												onCancelAutomaticTaskAction={handleCancelAutomaticTaskAction}
@@ -902,6 +990,7 @@ export default function App(): ReactElement {
 													selectedCard ? undefined : handleProgrammaticCardMoveReady
 												}
 												onDragEnd={handleDragEnd}
+												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 											/>
 										)}
 									</div>
@@ -970,6 +1059,7 @@ export default function App(): ReactElement {
 									onEditTask={(task) => {
 										handleOpenEditTask(task, { preserveDetailSelection: true });
 									}}
+									onSaveTaskTitle={handleSaveTaskTitle}
 									onCommitTask={handleCommitTask}
 									onOpenPrTask={handleOpenPrTask}
 									onAgentCommitTask={handleAgentCommitTask}
@@ -1016,6 +1106,7 @@ export default function App(): ReactElement {
 									onBottomTerminalToggleExpand={handleToggleExpandDetailTerminal}
 									isDocumentVisible={isDocumentVisible}
 									onClineSettingsSaved={refreshRuntimeProjectConfig}
+									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
 								/>
 							</div>
 						) : null}
@@ -1037,6 +1128,7 @@ export default function App(): ReactElement {
 						refreshRuntimeProjectConfig();
 						refreshSettingsRuntimeProjectConfig();
 					}}
+					onAccountSwitched={refreshKanbanAccess}
 				/>
 				<DebugDialog
 					open={isDebugDialogOpen}
@@ -1048,6 +1140,8 @@ export default function App(): ReactElement {
 				<TaskCreateDialog
 					open={isInlineTaskCreateOpen}
 					onOpenChange={handleCreateDialogOpenChange}
+					title={newTaskTitle}
+					onTitleChange={setNewTaskTitle}
 					prompt={newTaskPrompt}
 					onPromptChange={setNewTaskPrompt}
 					images={newTaskImages}
@@ -1068,6 +1162,14 @@ export default function App(): ReactElement {
 					branchRef={newTaskBranchRef}
 					branchOptions={createTaskBranchOptions}
 					onBranchRefChange={setNewTaskBranchRef}
+					agentId={newTaskAgentId}
+					onAgentIdChange={setNewTaskAgentId}
+					clineSettings={newTaskClineSettings}
+					onClineSettingsChange={setNewTaskClineSettings}
+					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
+					defaultProviderId={defaultTaskClineProviderId}
+					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+					defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
 				/>
 				<ClearTrashDialog
 					open={isClearTrashDialogOpen}
@@ -1087,62 +1189,13 @@ export default function App(): ReactElement {
 					onClineSetupSaved={handleOnboardingClineSetupSaved}
 				/>
 
-				<AlertDialog
-					open={pendingGitInitializationPath !== null}
-					onOpenChange={(open) => {
-						if (!open) {
-							handleCancelInitializeGitProject();
-						}
-					}}
-				>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Initialize git repository?</AlertDialogTitle>
-					</AlertDialogHeader>
-					<AlertDialogBody>
-						<AlertDialogDescription asChild>
-							<div className="flex flex-col gap-3">
-								<p>
-									Cline requires git to manage worktrees for tasks. This folder is not a git repository yet.
-								</p>
-								{pendingGitInitializationPath ? (
-									<p className="font-mono text-xs text-text-secondary break-all">
-										{pendingGitInitializationPath}
-									</p>
-								) : null}
-								<p>If you cancel, the project will not be added.</p>
-							</div>
-						</AlertDialogDescription>
-					</AlertDialogBody>
-					<AlertDialogFooter>
-						<AlertDialogCancel asChild>
-							<Button
-								variant="default"
-								disabled={isInitializingGitProject}
-								onClick={handleCancelInitializeGitProject}
-							>
-								Cancel
-							</Button>
-						</AlertDialogCancel>
-						<AlertDialogAction asChild>
-							<Button
-								variant="primary"
-								disabled={isInitializingGitProject}
-								onClick={() => {
-									void handleConfirmInitializeGitProject();
-								}}
-							>
-								{isInitializingGitProject ? (
-									<>
-										<Spinner size={14} />
-										Initializing...
-									</>
-								) : (
-									"Initialize git"
-								)}
-							</Button>
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialog>
+				<AddProjectDialog
+					open={isAddProjectDialogOpen}
+					onOpenChange={setIsAddProjectDialogOpen}
+					onProjectAdded={handleAddProjectSuccess}
+					currentProjectId={currentProjectId}
+					initialGitInitPath={pendingNativeGitInitPath}
+				/>
 
 				<AlertDialog
 					open={gitActionError !== null}

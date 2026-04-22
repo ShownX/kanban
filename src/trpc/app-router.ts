@@ -6,7 +6,11 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import type {
+	RuntimeClineAccountBalanceResponse,
+	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
+	RuntimeClineAccountSwitchRequest,
+	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderRequest,
 	RuntimeClineAddProviderResponse,
 	RuntimeClineKanbanAccessResponse,
@@ -30,6 +34,8 @@ import type {
 	RuntimeConfigResponse,
 	RuntimeConfigSaveRequest,
 	RuntimeDebugResetAllStateResponse,
+	RuntimeDirectoryListRequest,
+	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGitCheckoutRequest,
 	RuntimeGitCheckoutResponse,
@@ -86,7 +92,11 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	runtimeClineAccountBalanceResponseSchema,
+	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
+	runtimeClineAccountSwitchRequestSchema,
+	runtimeClineAccountSwitchResponseSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineAddProviderResponseSchema,
 	runtimeClineKanbanAccessResponseSchema,
@@ -110,6 +120,8 @@ import {
 	runtimeConfigResponseSchema,
 	runtimeConfigSaveRequestSchema,
 	runtimeDebugResetAllStateResponseSchema,
+	runtimeDirectoryListRequestSchema,
+	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
@@ -132,6 +144,9 @@ import {
 	runtimeProjectRemoveRequestSchema,
 	runtimeProjectRemoveResponseSchema,
 	runtimeProjectsResponseSchema,
+	runtimeRoadmapFileResponseSchema,
+	runtimeRoadmapFileWriteRequestSchema,
+	runtimeRoadmapImportRequestSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
 	runtimeSlashCommandsResponseSchema,
@@ -231,6 +246,14 @@ export interface RuntimeTrpcContext {
 		getClineAccountProfile: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineAccountProfileResponse>;
 		getClineKanbanAccess: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineKanbanAccessResponse>;
 		getFeaturebaseToken: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeFeaturebaseTokenResponse>;
+		getClineAccountBalance: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineAccountBalanceResponse>;
+		getClineAccountOrganizations: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+		) => Promise<RuntimeClineAccountOrganizationsResponse>;
+		switchClineAccount: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClineAccountSwitchRequest,
+		) => Promise<RuntimeClineAccountSwitchResponse>;
 		getClineProviderModels: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineProviderModelsRequest,
@@ -325,6 +348,10 @@ export interface RuntimeTrpcContext {
 			input: RuntimeProjectRemoveRequest,
 		) => Promise<RuntimeProjectRemoveResponse>;
 		pickProjectDirectory: (preferredWorkspaceId: string | null) => Promise<RuntimeProjectDirectoryPickerResponse>;
+		listDirectoryContents: (
+			preferredWorkspaceId: string | null,
+			input: RuntimeDirectoryListRequest,
+		) => Promise<RuntimeDirectoryListResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -477,6 +504,20 @@ export const runtimeAppRouter = t.router({
 		getFeaturebaseToken: t.procedure.output(runtimeFeaturebaseTokenResponseSchema).query(async ({ ctx }) => {
 			return await ctx.runtimeApi.getFeaturebaseToken(ctx.workspaceScope);
 		}),
+		getClineAccountBalance: t.procedure.output(runtimeClineAccountBalanceResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getClineAccountBalance(ctx.workspaceScope);
+		}),
+		getClineAccountOrganizations: t.procedure
+			.output(runtimeClineAccountOrganizationsResponseSchema)
+			.query(async ({ ctx }) => {
+				return await ctx.runtimeApi.getClineAccountOrganizations(ctx.workspaceScope);
+			}),
+		switchClineAccount: t.procedure
+			.input(runtimeClineAccountSwitchRequestSchema)
+			.output(runtimeClineAccountSwitchResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.switchClineAccount(ctx.workspaceScope, input);
+			}),
 		getClineProviderModels: t.procedure
 			.input(runtimeClineProviderModelsRequestSchema)
 			.output(runtimeClineProviderModelsResponseSchema)
@@ -512,6 +553,29 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeShellSessionStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.startShellSession(ctx.workspaceScope, input);
+			}),
+		readRoadmapFile: workspaceProcedure.output(runtimeRoadmapFileResponseSchema).query(async ({ ctx }) => {
+			const { readRoadmapFile, getRoadmapFilePath } = await import("../workspace/roadmap-file.js");
+			const result = await readRoadmapFile(ctx.workspaceScope.workspacePath);
+			return { ...result, path: getRoadmapFilePath(ctx.workspaceScope.workspacePath) };
+		}),
+		writeRoadmapFile: workspaceProcedure
+			.input(runtimeRoadmapFileWriteRequestSchema)
+			.output(runtimeRoadmapFileResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				const { writeRoadmapFromItems, getRoadmapFilePath, serializeRoadmap } = await import(
+					"../workspace/roadmap-file.js"
+				);
+				await writeRoadmapFromItems(ctx.workspaceScope.workspacePath, input.items);
+				const content = serializeRoadmap(input.items);
+				return { exists: true, content, path: getRoadmapFilePath(ctx.workspaceScope.workspacePath) };
+			}),
+		importRoadmapText: workspaceProcedure
+			.input(runtimeRoadmapImportRequestSchema)
+			.output(z.object({ items: z.array(z.unknown()) }))
+			.mutation(async ({ input }) => {
+				const { parseImportedText } = await import("../workspace/roadmap-file.js");
+				return { items: parseImportedText(input.content) };
 			}),
 		runCommand: workspaceProcedure
 			.input(runtimeCommandRunRequestSchema)
@@ -639,6 +703,12 @@ export const runtimeAppRouter = t.router({
 		pickDirectory: t.procedure.output(runtimeProjectDirectoryPickerResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.projectsApi.pickProjectDirectory(ctx.requestedWorkspaceId);
 		}),
+		listDirectoryContents: t.procedure
+			.input(runtimeDirectoryListRequestSchema)
+			.output(runtimeDirectoryListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.projectsApi.listDirectoryContents(ctx.requestedWorkspaceId, input);
+			}),
 	}),
 	hooks: t.router({
 		ingest: t.procedure

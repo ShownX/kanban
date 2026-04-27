@@ -28,6 +28,7 @@ const oauthMocks = vi.hoisted(() => ({
 	loginOcaOAuth: vi.fn(),
 	loginOpenAICodex: vi.fn(),
 	resolveDefaultMcpSettingsPath: vi.fn(),
+	resolveClineDataDir: vi.fn(() => "/tmp/cline"),
 	loadMcpSettingsFile: vi.fn(),
 	saveProviderSettings: vi.fn(),
 	getProviderSettings: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock("@clinebot/core", () => ({
 	loginOcaOAuth: oauthMocks.loginOcaOAuth,
 	loginOpenAICodex: oauthMocks.loginOpenAICodex,
 	resolveDefaultMcpSettingsPath: oauthMocks.resolveDefaultMcpSettingsPath,
+	resolveClineDataDir: oauthMocks.resolveClineDataDir,
 	loadMcpSettingsFile: oauthMocks.loadMcpSettingsFile,
 	resolveProviderConfig: llmsModelMocks.resolveProviderConfig,
 	ClineAccountService: class {

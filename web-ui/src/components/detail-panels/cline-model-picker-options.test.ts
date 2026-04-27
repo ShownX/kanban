@@ -21,7 +21,7 @@ describe("buildClineAgentModelPickerOptions", () => {
 			createModel("openai/gpt-5.5", "GPT-5.5"),
 			createModel("openai/gpt-5.2", "GPT-5.2"),
 			createModel("anthropic/claude-opus-4.7", "Claude Opus 4.7"),
-			createModel("anthropic/claude-sonnet-4.7", "Claude Sonnet 4.7"),
+			createModel("anthropic/claude-sonnet-4.6", "Claude Sonnet 4.6"),
 			createModel("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
 		];
 

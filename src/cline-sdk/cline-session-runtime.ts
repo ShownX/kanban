@@ -10,6 +10,7 @@ import {
 } from "./cline-mcp-runtime-service";
 import { createKanbanClineLogger } from "./cline-runtime-logger";
 import { buildSessionIdPrefix, createSessionId } from "./cline-session-state";
+import { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
 import {
 	type ClineSdkPersistedMessage,
 	type ClineSdkSessionHost,
@@ -21,12 +22,9 @@ import {
 	createClineSdkSessionHost,
 } from "./sdk-runtime-boundary";
 
+export { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
+
 const DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES = 6;
-const CLINE_MODEL_CATALOG_DEFAULTS = {
-	loadLatestOnInit: true,
-	loadPrivateOnAuth: true,
-	failOnError: false,
-} as const;
 
 interface ClineSessionHostBoundary {
 	start(input: ClineSdkStartSessionInput): Promise<{ sessionId: string; result?: unknown }>;

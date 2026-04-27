@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.66]
+
+- Added a refresh button for LiteLLM and custom provider model lists, so you can re-fetch available models without leaving settings
+- Enforced origin and host validation on the Kanban websocket service to prevent unauthorized connections
+
 ## [0.1.65]
 
 - Model catalog now auto-refreshes on startup so newly available models appear immediately

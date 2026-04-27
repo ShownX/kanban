@@ -568,7 +568,7 @@ export function ClineSetupSection({
 					style={{ gridTemplateColumns: controller.selectedModelSupportsReasoningEffort ? "1fr 1fr" : "1fr" }}
 				>
 					<div className="min-w-0">
-						<div className="mb-1 flex items-center justify-between gap-2">
+						<div className="mb-1 flex items-center justify-between gap-2 h-7">
 							<p className="text-text-secondary text-[12px] m-0">Model ID</p>
 							{shouldShowBaseUrlField ? (
 								<Tooltip side="bottom" content="Save settings and refresh models">
@@ -615,7 +615,9 @@ export function ClineSetupSection({
 					</div>
 					{controller.selectedModelSupportsReasoningEffort ? (
 						<div className="min-w-0">
-							<p className="text-text-secondary text-[12px] mt-0 mb-1">Reasoning effort</p>
+							<div className="mb-1 flex items-center h-7">
+								<p className="text-text-secondary text-[12px] m-0">Reasoning effort</p>
+							</div>
 							<SearchSelectDropdown
 								options={CLINE_REASONING_EFFORT_OPTIONS}
 								selectedValue={controller.reasoningEffort}

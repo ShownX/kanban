@@ -10,6 +10,7 @@ import {
 } from "./cline-mcp-runtime-service";
 import { createKanbanClineLogger } from "./cline-runtime-logger";
 import { buildSessionIdPrefix, createSessionId } from "./cline-session-state";
+import { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
 import {
 	type ClineSdkPersistedMessage,
 	type ClineSdkSessionHost,
@@ -21,7 +22,10 @@ import {
 	createClineSdkSessionHost,
 } from "./sdk-runtime-boundary";
 
+export { CLINE_MODEL_CATALOG_DEFAULTS } from "./sdk-provider-boundary";
+
 const DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES = 6;
+
 interface ClineSessionHostBoundary {
 	start(input: ClineSdkStartSessionInput): Promise<{ sessionId: string; result?: unknown }>;
 	send(input: Parameters<ClineSdkSessionHost["send"]>[0]): Promise<unknown>;
@@ -31,6 +35,14 @@ interface ClineSessionHostBoundary {
 	dispose(reason?: string): Promise<void>;
 	get(sessionId: string): Promise<ClineSdkSessionRecord | undefined>;
 	list(limit?: number): Promise<ClineSdkSessionRecord[]>;
+	update?(
+		sessionId: string,
+		updates: {
+			prompt?: string | null;
+			metadata?: Record<string, unknown> | null;
+			title?: string | null;
+		},
+	): Promise<{ updated: boolean }>;
 	readMessages(sessionId: string): Promise<ClineSdkPersistedMessage[]>;
 	subscribe(listener: (event: unknown) => void): () => void;
 }
@@ -104,6 +116,7 @@ export interface ClineSessionRuntime {
 	clearTaskSessions(taskId: string): Promise<void>;
 	getTaskSessionId(taskId: string): string | null;
 	getTaskProviderId(taskId: string): string | null;
+	canRestartTaskSession(taskId: string): boolean;
 	readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null>;
 	dispose(): Promise<void>;
 }
@@ -123,15 +136,8 @@ async function persistKanbanTitleToClineSessionMetadata(
 ): Promise<void> {
 	const title = taskTitle?.trim();
 	if (!title) return;
-	const persistence = sessionHost as unknown as {
-		sessionService?: {
-			updateSession?: (input: { sessionId: string; title?: string | null }) => Promise<{ updated: boolean }>;
-		};
-	};
-	const updateSession = persistence.sessionService?.updateSession;
-	if (typeof updateSession !== "function") return;
 	try {
-		await updateSession.call(persistence.sessionService, { sessionId, title });
+		await sessionHost.update?.(sessionId, { title });
 	} catch {
 		// Best-effort only — Kanban board title remains canonical regardless.
 	}
@@ -190,10 +196,14 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 			}
 		}
 		this.replaceTaskMcpToolBundle(request.taskId, mcpToolBundle);
+		const hasMcpExtraTools = Boolean(mcpToolBundle && mcpToolBundle.tools.length > 0);
 
 		const sessionHost = await this.ensureSessionHost();
+		const userImages = toSdkUserImages(request.images);
+		const shouldSendInitialTurn = request.prompt.trim().length > 0 || Boolean(userImages?.length);
 		let startResult: Awaited<ReturnType<ClineSessionHostBoundary["start"]>>;
 		try {
+			// Hub-backed SDK hosts create the interactive session in start; the first turn runs through send.
 			startResult = await sessionHost.start({
 				config: {
 					sessionId: requestedSessionId,
@@ -210,6 +220,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 					enableTools: true,
 					enableSpawnAgent: false,
 					enableAgentTeams: false,
+					...(hasMcpExtraTools ? { disableMcpSettingsTools: true } : {}),
 					execution: {
 						maxConsecutiveMistakes: DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES,
 					},
@@ -221,13 +232,14 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 						providerId: request.providerId,
 						modelId: request.modelId,
 					}),
-					...(mcpToolBundle && mcpToolBundle.tools.length > 0 ? { extraTools: mcpToolBundle.tools } : {}),
+					...(hasMcpExtraTools ? { extraTools: mcpToolBundle?.tools ?? [] } : {}),
 				},
-				prompt: request.prompt,
 				initialMessages: request.initialMessages,
 				interactive: true,
-				userImages: toSdkUserImages(request.images),
-				userInstructionWatcher: request.userInstructionWatcher,
+				localRuntime: {
+					modelCatalogDefaults: CLINE_MODEL_CATALOG_DEFAULTS,
+					...(request.userInstructionWatcher ? { userInstructionWatcher: request.userInstructionWatcher } : {}),
+				},
 				requestToolApproval: request.requestToolApproval,
 			});
 		} catch (error) {
@@ -241,11 +253,26 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 			this.taskIdBySessionId.delete(requestedSessionId);
 		}
 
+		let result: unknown = startResult.result ?? null;
+		if (shouldSendInitialTurn) {
+			try {
+				result = await sessionHost.send({
+					sessionId: startResult.sessionId,
+					prompt: request.prompt,
+					userImages,
+				});
+			} catch (error) {
+				this.clearTaskSessionBinding(request.taskId, startResult.sessionId);
+				await this.releaseTaskMcpToolBundle(request.taskId);
+				throw error;
+			}
+		}
+
 		await persistKanbanTitleToClineSessionMetadata(sessionHost, startResult.sessionId, request.taskTitle);
 
 		return {
 			sessionId: startResult.sessionId,
-			result: startResult.result ?? null,
+			result,
 			...(startWarnings.length > 0 ? { warnings: startWarnings } : {}),
 		};
 	}
@@ -316,8 +343,18 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 			return;
 		}
 		const sessionHost = await this.ensureSessionHost();
-		await sessionHost.stop(sessionId);
-		await this.releaseTaskMcpToolBundle(taskId);
+		try {
+			await sessionHost.stop(sessionId);
+			this.clearTaskSessionBinding(taskId, sessionId);
+		} catch (error) {
+			const persistedRecord = await sessionHost.get(sessionId).catch(() => undefined);
+			if (!persistedRecord) {
+				this.clearTaskSessionBinding(taskId, sessionId);
+			}
+			throw error;
+		} finally {
+			await this.releaseTaskMcpToolBundle(taskId);
+		}
 	}
 
 	async abortTaskSession(taskId: string): Promise<void> {
@@ -327,8 +364,18 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 			return;
 		}
 		const sessionHost = await this.ensureSessionHost();
-		await sessionHost.abort(sessionId);
-		await this.releaseTaskMcpToolBundle(taskId);
+		try {
+			await sessionHost.abort(sessionId);
+			this.clearTaskSessionBinding(taskId, sessionId);
+		} catch (error) {
+			const persistedRecord = await sessionHost.get(sessionId).catch(() => undefined);
+			if (!persistedRecord) {
+				this.clearTaskSessionBinding(taskId, sessionId);
+			}
+			throw error;
+		} finally {
+			await this.releaseTaskMcpToolBundle(taskId);
+		}
 	}
 
 	async clearTaskSessions(taskId: string): Promise<void> {
@@ -358,6 +405,10 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 
 	getTaskProviderId(taskId: string): string | null {
 		return this.lastStartRequestByTaskId.get(taskId)?.providerId ?? null;
+	}
+
+	canRestartTaskSession(taskId: string): boolean {
+		return this.lastStartRequestByTaskId.has(taskId);
 	}
 
 	async readPersistedTaskSession(taskId: string): Promise<ClinePersistedTaskSessionSnapshot | null> {

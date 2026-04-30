@@ -9,6 +9,9 @@ import type {
 	RuntimeClineAccountProfileResponse,
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineDeviceAuthCompleteRequest,
+	RuntimeClineDeviceAuthCompleteResponse,
+	RuntimeClineDeviceAuthStartResponse,
 	RuntimeClineKanbanAccessResponse,
 	RuntimeClineMcpAuthStatusResponse,
 	RuntimeClineMcpOAuthResponse,
@@ -26,6 +29,8 @@ import type {
 	RuntimeDebugResetAllStateResponse,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeProjectShortcut,
+	RuntimeRunUpdateResponse,
+	RuntimeUpdateStatusResponse,
 } from "@/runtime/types";
 
 export async function fetchRuntimeConfig(workspaceId: string | null): Promise<RuntimeConfigResponse> {
@@ -160,6 +165,19 @@ export async function runClineProviderOauthLogin(
 	return await trpcClient.runtime.runClineProviderOAuthLogin.mutate(input);
 }
 
+export async function startClineDeviceAuth(workspaceId: string | null): Promise<RuntimeClineDeviceAuthStartResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.startClineDeviceAuth.mutate();
+}
+
+export async function completeClineDeviceAuth(
+	workspaceId: string | null,
+	input: RuntimeClineDeviceAuthCompleteRequest,
+): Promise<RuntimeClineDeviceAuthCompleteResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.completeClineDeviceAuth.mutate(input);
+}
+
 export async function fetchClineMcpSettings(workspaceId: string | null): Promise<RuntimeClineMcpSettingsResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.getClineMcpSettings.query();
@@ -222,4 +240,14 @@ export async function switchClineAccount(
 ): Promise<RuntimeClineAccountSwitchResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.switchClineAccount.mutate({ organizationId });
+}
+
+export async function fetchRuntimeUpdateStatus(workspaceId: string | null): Promise<RuntimeUpdateStatusResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.getUpdateStatus.query();
+}
+
+export async function runRuntimeUpdateNow(workspaceId: string | null): Promise<RuntimeRunUpdateResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.runUpdateNow.mutate();
 }

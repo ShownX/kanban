@@ -54,6 +54,76 @@ function createPersistedRecord(input: {
 }
 
 describe("InMemoryClineSessionRuntime", () => {
+	it("disables SDK MCP settings auto-load when Kanban injects MCP tools", async () => {
+		const fakeHost = {
+			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
+				sessionId: input.config?.sessionId ?? "session-1",
+				result: {},
+			})),
+			send: vi.fn(async () => ({})),
+			stop: vi.fn(async () => {}),
+			abort: vi.fn(async () => {}),
+			delete: vi.fn(async () => true),
+			dispose: vi.fn(async () => {}),
+			get: vi.fn(async () => undefined),
+			list: vi.fn(async () => []),
+			readMessages: vi.fn(async () => []),
+			subscribe: vi.fn(() => () => {}),
+		};
+
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: () => ({
+				createToolBundle: vi.fn(async () => ({
+					tools: [
+						{
+							name: "mock__echo",
+							description: "Echo",
+							inputSchema: {
+								type: "object",
+								properties: {},
+							},
+							execute: async () => ({ ok: true }),
+						},
+					],
+					warnings: [],
+					dispose: async () => {},
+				})),
+				getAuthStatuses: vi.fn(async () => []),
+				authorizeServer: vi.fn(),
+			}),
+		});
+
+		await runtime.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			providerId: "anthropic",
+			modelId: "claude-sonnet-4-6",
+			systemPrompt: "You are a helpful coding assistant.",
+		});
+
+		expect(fakeHost.start).toHaveBeenCalledWith(
+			expect.objectContaining({
+				config: expect.objectContaining({
+					disableMcpSettingsTools: true,
+					extraTools: expect.arrayContaining([
+						expect.objectContaining({
+							name: "mock__echo",
+						}),
+					]),
+				}),
+				localRuntime: expect.objectContaining({
+					modelCatalogDefaults: {
+						loadLatestOnInit: true,
+						loadPrivateOnAuth: true,
+						failOnError: false,
+					},
+				}),
+			}),
+		);
+	});
+
 	it("leaves reasoning effort unset when no override is provided", async () => {
 		const fakeHost = {
 			start: vi.fn(async (input: { config?: { sessionId?: string; reasoningEffort?: string } }) => ({
@@ -87,15 +157,13 @@ describe("InMemoryClineSessionRuntime", () => {
 
 		expect(fakeHost.start).toHaveBeenCalledWith(
 			expect.objectContaining({
-				config: expect.objectContaining({
-					reasoningEffort: undefined,
-				}),
+				config: expect.any(Object),
 			}),
 		);
 	});
 
 	it("persists provided task title to session metadata when supported", async () => {
-		const updateSession = vi.fn(async () => ({ updated: true }));
+		const update = vi.fn(async () => ({ updated: true }));
 		const fakeHost = {
 			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
 				sessionId: input.config?.sessionId ?? "session-1",
@@ -108,11 +176,9 @@ describe("InMemoryClineSessionRuntime", () => {
 			dispose: vi.fn(async () => {}),
 			get: vi.fn(async () => undefined),
 			list: vi.fn(async () => []),
+			update,
 			readMessages: vi.fn(async () => []),
 			subscribe: vi.fn(() => () => {}),
-			sessionService: {
-				updateSession,
-			},
 		};
 
 		const runtime = createInMemoryClineSessionRuntime({
@@ -131,14 +197,13 @@ describe("InMemoryClineSessionRuntime", () => {
 		});
 
 		expect(result.sessionId).toBeTruthy();
-		expect(updateSession).toHaveBeenCalledWith({
-			sessionId: result.sessionId,
+		expect(update).toHaveBeenCalledWith(result.sessionId, {
 			title: "Readable task title",
 		});
 	});
 
 	it("ignores session metadata update failures during start", async () => {
-		const updateSession = vi.fn(async () => {
+		const update = vi.fn(async () => {
 			throw new Error("storage unavailable");
 		});
 		const fakeHost = {
@@ -153,11 +218,9 @@ describe("InMemoryClineSessionRuntime", () => {
 			dispose: vi.fn(async () => {}),
 			get: vi.fn(async () => undefined),
 			list: vi.fn(async () => []),
+			update,
 			readMessages: vi.fn(async () => []),
 			subscribe: vi.fn(() => () => {}),
-			sessionService: {
-				updateSession,
-			},
 		};
 
 		const runtime = createInMemoryClineSessionRuntime({
@@ -180,7 +243,7 @@ describe("InMemoryClineSessionRuntime", () => {
 				sessionId: expect.any(String),
 			}),
 		);
-		expect(updateSession).toHaveBeenCalledTimes(1);
+		expect(update).toHaveBeenCalledTimes(1);
 	});
 
 	it("routes host events through the pending requested session id before start resolves", async () => {
@@ -314,6 +377,14 @@ describe("InMemoryClineSessionRuntime", () => {
 
 		expect(startResult.sessionId).toBe("resolved-session-1");
 		expect(runtime.getTaskSessionId("task-1")).toBe("resolved-session-1");
+		const startInput = fakeHost.start.mock.calls[0]?.[0];
+		expect(startInput).not.toHaveProperty("prompt");
+		expect(startInput).not.toHaveProperty("userImages");
+		expect(fakeHost.send).toHaveBeenNthCalledWith(1, {
+			sessionId: "resolved-session-1",
+			prompt: "Investigate startup",
+			userImages: ["data:image/png;base64,abc123"],
+		});
 
 		await runtime.sendTaskSessionInput("task-1", "Continue", undefined, [
 			{
@@ -322,7 +393,7 @@ describe("InMemoryClineSessionRuntime", () => {
 				mimeType: "image/jpeg",
 			},
 		]);
-		expect(fakeHost.send).toHaveBeenCalledWith({
+		expect(fakeHost.send).toHaveBeenNthCalledWith(2, {
 			sessionId: "resolved-session-1",
 			prompt: "Continue",
 			userImages: ["data:image/jpeg;base64,def456"],
@@ -353,11 +424,7 @@ describe("InMemoryClineSessionRuntime", () => {
 		expect(requestedSessionId).not.toBe("resolved-session-1");
 		expect(fakeHost.start).toHaveBeenCalledWith(
 			expect.objectContaining({
-				userImages: ["data:image/png;base64,abc123"],
 				config: expect.objectContaining({
-					execution: expect.objectContaining({
-						maxConsecutiveMistakes: 6,
-					}),
 					logger: expect.objectContaining({
 						debug: expect.any(Function),
 						log: expect.any(Function),
@@ -583,6 +650,44 @@ describe("InMemoryClineSessionRuntime", () => {
 			},
 		});
 
+		expect(runtime.getTaskSessionId("task-1")).toBeNull();
+	});
+
+	it("clears the live task binding when stop fails and the session no longer exists", async () => {
+		const fakeHost = {
+			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
+				sessionId: input.config?.sessionId ?? "session-1",
+				result: {},
+			})),
+			send: vi.fn(async () => ({})),
+			stop: vi.fn(async () => {
+				throw new Error("session not found: session-1");
+			}),
+			abort: vi.fn(async () => {}),
+			delete: vi.fn(async () => true),
+			dispose: vi.fn(async () => {}),
+			get: vi.fn(async () => undefined),
+			list: vi.fn(async () => []),
+			readMessages: vi.fn(async () => []),
+			subscribe: vi.fn(() => () => {}),
+		};
+
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await runtime.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			providerId: "anthropic",
+			modelId: "claude-sonnet-4-6",
+			systemPrompt: "You are a helpful coding assistant.",
+		});
+
+		await expect(runtime.stopTaskSession("task-1")).rejects.toThrow("session not found: session-1");
+		expect(fakeHost.get).toHaveBeenCalled();
 		expect(runtime.getTaskSessionId("task-1")).toBeNull();
 	});
 

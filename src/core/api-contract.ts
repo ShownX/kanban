@@ -791,6 +791,26 @@ export const runtimeClineOauthLoginResponseSchema = z.object({
 });
 export type RuntimeClineOauthLoginResponse = z.infer<typeof runtimeClineOauthLoginResponseSchema>;
 
+export const runtimeClineDeviceAuthStartResponseSchema = z.object({
+	deviceCode: z.string(),
+	userCode: z.string(),
+	verificationUrl: z.string(),
+	expiresInSeconds: z.number(),
+	pollIntervalSeconds: z.number(),
+});
+export type RuntimeClineDeviceAuthStartResponse = z.infer<typeof runtimeClineDeviceAuthStartResponseSchema>;
+
+export const runtimeClineDeviceAuthCompleteRequestSchema = z.object({
+	deviceCode: z.string(),
+	expiresInSeconds: z.number(),
+	pollIntervalSeconds: z.number(),
+	baseUrl: z.string().nullable().optional(),
+});
+export type RuntimeClineDeviceAuthCompleteRequest = z.infer<typeof runtimeClineDeviceAuthCompleteRequestSchema>;
+
+export const runtimeClineDeviceAuthCompleteResponseSchema = runtimeClineOauthLoginResponseSchema;
+export type RuntimeClineDeviceAuthCompleteResponse = z.infer<typeof runtimeClineDeviceAuthCompleteResponseSchema>;
+
 export const runtimeClineProviderSettingsSaveRequestSchema = z.object({
 	providerId: z.string(),
 	modelId: z.string().nullable().optional(),
@@ -924,6 +944,30 @@ export const runtimeDebugResetAllStateResponseSchema = z.object({
 	clearedPaths: z.array(z.string()),
 });
 export type RuntimeDebugResetAllStateResponse = z.infer<typeof runtimeDebugResetAllStateResponseSchema>;
+
+export const runtimeUpdateStatusResponseSchema = z.object({
+	currentVersion: z.string(),
+	latestVersion: z.string().nullable(),
+	updateAvailable: z.boolean(),
+	updateTiming: z.enum(["startup", "shutdown"]).nullable(),
+	installCommand: z.string().nullable(),
+});
+export type RuntimeUpdateStatusResponse = z.infer<typeof runtimeUpdateStatusResponseSchema>;
+
+export const runtimeRunUpdateResponseSchema = z.object({
+	status: z.enum([
+		"updated",
+		"already_up_to_date",
+		"cache_refreshed",
+		"unsupported_installation",
+		"check_failed",
+		"update_failed",
+	]),
+	currentVersion: z.string(),
+	latestVersion: z.string().nullable(),
+	message: z.string(),
+});
+export type RuntimeRunUpdateResponse = z.infer<typeof runtimeRunUpdateResponseSchema>;
 
 export const runtimeAgentDefinitionSchema = z.object({
 	id: runtimeAgentIdSchema,

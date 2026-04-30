@@ -13,6 +13,9 @@ import type {
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderRequest,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineDeviceAuthCompleteRequest,
+	RuntimeClineDeviceAuthCompleteResponse,
+	RuntimeClineDeviceAuthStartResponse,
 	RuntimeClineKanbanAccessResponse,
 	RuntimeClineMcpAuthStatusResponse,
 	RuntimeClineMcpOAuthRequest,
@@ -58,6 +61,7 @@ import type {
 	RuntimeProjectRemoveRequest,
 	RuntimeProjectRemoveResponse,
 	RuntimeProjectsResponse,
+	RuntimeRunUpdateResponse,
 	RuntimeShellSessionStartRequest,
 	RuntimeShellSessionStartResponse,
 	RuntimeSlashCommandsResponse,
@@ -79,6 +83,7 @@ import type {
 	RuntimeTaskSessionStopResponse,
 	RuntimeTaskWorkspaceInfoRequest,
 	RuntimeTaskWorkspaceInfoResponse,
+	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceChangesRequest,
 	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceFileSearchRequest,
@@ -99,6 +104,9 @@ import {
 	runtimeClineAccountSwitchResponseSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineAddProviderResponseSchema,
+	runtimeClineDeviceAuthCompleteRequestSchema,
+	runtimeClineDeviceAuthCompleteResponseSchema,
+	runtimeClineDeviceAuthStartResponseSchema,
 	runtimeClineKanbanAccessResponseSchema,
 	runtimeClineMcpAuthStatusResponseSchema,
 	runtimeClineMcpOAuthRequestSchema,
@@ -147,6 +155,7 @@ import {
 	runtimeRoadmapFileResponseSchema,
 	runtimeRoadmapFileWriteRequestSchema,
 	runtimeRoadmapImportRequestSchema,
+	runtimeRunUpdateResponseSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
 	runtimeSlashCommandsResponseSchema,
@@ -168,6 +177,7 @@ import {
 	runtimeTaskSessionStopResponseSchema,
 	runtimeTaskWorkspaceInfoRequestSchema,
 	runtimeTaskWorkspaceInfoResponseSchema,
+	runtimeUpdateStatusResponseSchema,
 	runtimeWorkspaceChangesRequestSchema,
 	runtimeWorkspaceChangesResponseSchema,
 	runtimeWorkspaceFileSearchRequestSchema,
@@ -262,6 +272,11 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineOauthLoginRequest,
 		) => Promise<RuntimeClineOauthLoginResponse>;
+		startClineDeviceAuth: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineDeviceAuthStartResponse>;
+		completeClineDeviceAuth: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClineDeviceAuthCompleteRequest,
+		) => Promise<RuntimeClineDeviceAuthCompleteResponse>;
 		getClineMcpAuthStatuses: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineMcpAuthStatusResponse>;
 		runClineMcpServerOAuth: (
 			scope: RuntimeTrpcWorkspaceScope | null,
@@ -282,6 +297,8 @@ export interface RuntimeTrpcContext {
 		) => Promise<RuntimeCommandRunResponse>;
 		resetAllState: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeDebugResetAllStateResponse>;
 		openFile: (input: RuntimeOpenFileRequest) => Promise<RuntimeOpenFileResponse>;
+		getUpdateStatus: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeUpdateStatusResponse>;
+		runUpdateNow: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeRunUpdateResponse>;
 	};
 	workspaceApi: {
 		loadGitSummary: (
@@ -548,6 +565,15 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.runClineProviderOAuthLogin(ctx.workspaceScope, input);
 			}),
+		startClineDeviceAuth: t.procedure.output(runtimeClineDeviceAuthStartResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.runtimeApi.startClineDeviceAuth(ctx.workspaceScope);
+		}),
+		completeClineDeviceAuth: t.procedure
+			.input(runtimeClineDeviceAuthCompleteRequestSchema)
+			.output(runtimeClineDeviceAuthCompleteResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.completeClineDeviceAuth(ctx.workspaceScope, input);
+			}),
 		startShellSession: workspaceProcedure
 			.input(runtimeShellSessionStartRequestSchema)
 			.output(runtimeShellSessionStartResponseSchema)
@@ -592,6 +618,12 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.openFile(input);
 			}),
+		getUpdateStatus: t.procedure.output(runtimeUpdateStatusResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getUpdateStatus(ctx.workspaceScope);
+		}),
+		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
+		}),
 	}),
 	workspace: t.router({
 		getGitSummary: workspaceProcedure

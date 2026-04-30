@@ -58,6 +58,7 @@ function HookHarness({
 		isAwaitingWorkspaceSnapshot: false,
 		isInitialRuntimeLoad: false,
 		isProjectSwitching: false,
+		isWorkspaceMetadataPending: false,
 		onDetailClosed,
 	});
 

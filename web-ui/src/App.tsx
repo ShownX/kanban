@@ -31,6 +31,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { UpdateNotificationController } from "@/components/update-notification-controller";
 import { createInitialBoardData } from "@/data/board-data";
 import { createIdleTaskSession } from "@/hooks/app-utils";
 import { KanbanAccessBlockedFallback } from "@/hooks/kanban-access-blocked-fallback";
@@ -237,6 +238,7 @@ export default function App(): ReactElement {
 		isAwaitingWorkspaceSnapshot,
 		isInitialRuntimeLoad,
 		isProjectSwitching,
+		isWorkspaceMetadataPending,
 		onDetailClosed: () => {
 			setIsGitHistoryOpen(false);
 		},
@@ -291,8 +293,6 @@ export default function App(): ReactElement {
 
 	const {
 		isInlineTaskCreateOpen,
-		newTaskTitle,
-		setNewTaskTitle,
 		newTaskPrompt,
 		setNewTaskPrompt,
 		newTaskImages,
@@ -311,8 +311,6 @@ export default function App(): ReactElement {
 		newTaskClineSettings,
 		setNewTaskClineSettings,
 		editingTaskId,
-		editTaskTitle,
-		setEditTaskTitle,
 		editTaskPrompt,
 		setEditTaskPrompt,
 		editTaskImages,
@@ -771,8 +769,6 @@ export default function App(): ReactElement {
 
 	const inlineTaskEditor = editingTaskId ? (
 		<TaskInlineCreateCard
-			title={editTaskTitle}
-			onTitleChange={setEditTaskTitle}
 			prompt={editTaskPrompt}
 			onPromptChange={setEditTaskPrompt}
 			images={editTaskImages}
@@ -1022,7 +1018,7 @@ export default function App(): ReactElement {
 													onClose={closeHomeTerminal}
 													minimalHeaderTitle="Terminal"
 													minimalHeaderSubtitle={homeTerminalSubtitle}
-													panelBackgroundColor={terminalThemeColors.surfaceRaised}
+													panelBackgroundColor="var(--color-surface-1)"
 													terminalBackgroundColor={terminalThemeColors.surfaceRaised}
 													cursorColor={terminalThemeColors.textPrimary}
 													onConnectionReady={markTerminalConnectionReady}
@@ -1140,8 +1136,6 @@ export default function App(): ReactElement {
 				<TaskCreateDialog
 					open={isInlineTaskCreateOpen}
 					onOpenChange={handleCreateDialogOpenChange}
-					title={newTaskTitle}
-					onTitleChange={setNewTaskTitle}
 					prompt={newTaskPrompt}
 					onPromptChange={setNewTaskPrompt}
 					images={newTaskImages}
@@ -1196,6 +1190,8 @@ export default function App(): ReactElement {
 					currentProjectId={currentProjectId}
 					initialGitInitPath={pendingNativeGitInitPath}
 				/>
+
+				<UpdateNotificationController />
 
 				<AlertDialog
 					open={gitActionError !== null}

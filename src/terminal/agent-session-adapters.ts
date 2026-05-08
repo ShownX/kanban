@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -609,7 +610,9 @@ const claudeAdapter: AgentSessionAdapter = {
 		const env: Record<string, string | undefined> = {
 			FORCE_HYPERLINK: "1",
 		};
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId, {
+			hasRoadmap: existsSync(join(input.cwd, ".kanban", "ROADMAP.md")),
+		});
 		if (
 			input.autonomousModeEnabled &&
 			!input.startInPlanMode &&
@@ -737,7 +740,9 @@ const codexAdapter: AgentSessionAdapter = {
 		const env: Record<string, string | undefined> = {};
 		const binary = input.binary;
 		let deferredStartupInput: string | undefined;
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId, {
+			hasRoadmap: existsSync(join(input.cwd, ".kanban", "ROADMAP.md")),
+		});
 
 		if (!hasCodexConfigOverride(codexArgs, "check_for_update_on_startup")) {
 			codexArgs.push("-c", "check_for_update_on_startup=false");
@@ -1236,7 +1241,9 @@ const droidAdapter: AgentSessionAdapter = {
 			}
 		}
 
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId, {
+			hasRoadmap: existsSync(join(input.cwd, ".kanban", "ROADMAP.md")),
+		});
 		if (
 			appendedSystemPrompt &&
 			!hasCliOption(args, "--append-system-prompt") &&
@@ -1270,7 +1277,9 @@ const kiroAdapter: AgentSessionAdapter = {
 		}
 
 		const hooks = resolveHookContext(input);
-		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId, {
+			hasRoadmap: existsSync(join(input.cwd, ".kanban", "ROADMAP.md")),
+		});
 		if (hooks || appendedSystemPrompt) {
 			const configPath = getKiroAgentConfigPath();
 			const config: Record<string, unknown> = {

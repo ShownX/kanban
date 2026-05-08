@@ -2,6 +2,8 @@
 // runtime-api.ts uses this service to start sessions, send messages, load
 // history, and subscribe to summaries and chat events without knowing SDK
 // host, repository, or event-adapter details.
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type {
 	RuntimeClineReasoningEffort,
 	RuntimeTaskImage,
@@ -410,7 +412,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 						providerId,
 						rules: runtimeSetup.loadRules(),
 					}));
-				const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(request.taskId);
+				const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(request.taskId, {
+					hasRoadmap: existsSync(join(request.cwd, ".kanban", "ROADMAP.md")),
+				});
 				if (appendedSystemPrompt) {
 					systemPrompt = `${systemPrompt}\n\n${appendedSystemPrompt}`;
 				}

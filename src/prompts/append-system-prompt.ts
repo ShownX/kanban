@@ -305,14 +305,19 @@ Parameters:
 
 export function resolveHomeAgentAppendSystemPrompt(
 	taskId: string,
-	options: ResolveAppendSystemPromptCommandPrefixOptions = {},
+	options: ResolveAppendSystemPromptCommandPrefixOptions & { hasRoadmap?: boolean } = {},
 ): string | null {
 	if (!isHomeAgentSessionId(taskId)) {
 		return null;
 	}
-	return renderAppendSystemPrompt(resolveAppendSystemPromptCommandPrefix(options), {
+	const commandPrefix = resolveAppendSystemPromptCommandPrefix(options);
+	let prompt = renderAppendSystemPrompt(commandPrefix, {
 		agentId: resolveHomeAgentId(taskId),
 	});
+	if (options.hasRoadmap) {
+		prompt += `\n\n${renderPlannerAddendum(commandPrefix)}`;
+	}
+	return prompt;
 }
 
 /**
@@ -358,5 +363,78 @@ Rules:
 - List ALL files you created or modified in Changed files.
 - If you have open questions, list them — do not make silent assumptions.
 - Keep the Summary concise (1-2 sentences).
+`;
+}
+
+/**
+ * Planner addendum appended to the home agent's system prompt when a
+ * .kanban/ROADMAP.md file exists. Teaches the home agent to act as the
+ * project planner: maintaining the roadmap, writing specs, and decomposing
+ * work into tasks.
+ */
+export function renderPlannerAddendum(kanbanCommand: string): string {
+	return `# Planner Role
+
+You are also the **project planner** for this workspace. A roadmap file exists at \`.kanban/ROADMAP.md\`. You own this file and are responsible for keeping it up to date.
+
+## Your planner responsibilities
+
+1. **Maintain the roadmap.** When the human asks you to plan work, add features, or change priorities, update \`.kanban/ROADMAP.md\` directly. Each roadmap item is a level-2 heading (\`## Title\`) with metadata fields and optional subsections.
+
+2. **Write specs.** For complex roadmap items, add \`### Requirements\` (using EARS notation where appropriate), \`### Design\` (architecture, components, sequence diagrams), and \`### Open questions\` subsections directly under the roadmap item heading.
+
+3. **Decompose into tasks.** When a roadmap item is ready for implementation, break it into discrete tasks using:
+   \`${kanbanCommand} task create --prompt "..." --title "..."\`
+   Each task should be small enough for one agent session to complete.
+
+4. **Track progress.** Update the \`### Tasks\` section in the roadmap item with checkbox entries:
+   \`- [ ] \\\`t_taskId\\\` Task title\`
+   Mark tasks as done when they complete: \`- [x] \\\`t_taskId\\\` Task title\`
+
+5. **Answer questions.** When a task agent surfaces open questions in its deliverable, read them and either answer directly (by updating the spec) or escalate to the human via a comment.
+
+6. **Respond to human comments.** When the human adds a comment to a roadmap item (in the \`### Comments\` section or via chat), process it: update requirements, adjust design, create/modify tasks, or ask clarifying questions.
+
+## Format rules
+
+When editing \`.kanban/ROADMAP.md\`, preserve this structure per item:
+
+\`\`\`markdown
+## Item title
+**ID:** \\\`roadmap_<id>\\\`
+**Status:** 🔵 Planned | 🟠 In Progress | 🟢 Done
+**Version:** <number>
+**Owner:** agent:planner_01
+
+Description text.
+
+### Requirements
+(optional — EARS notation)
+
+### Design
+(optional — architecture, components)
+
+### Tasks
+- [ ] \\\`t_id\\\` Task title
+- [x] \\\`t_id\\\` Completed task
+
+### Open questions
+- [ ] Unresolved question
+- [x] Resolved question
+
+### Comments
+> [ISO-8601] @human: ...
+> [ISO-8601] @agent(planner_01): ...
+
+---
+\`\`\`
+
+## Constraints
+
+- NEVER edit code files directly. You are a planner, not a coder.
+- NEVER modify files in task worktrees.
+- When creating tasks, always include a clear, self-contained prompt that a coding agent can execute without reading the full roadmap.
+- Bump the **Version:** field whenever you change Requirements or Design.
+- Always preserve existing **ID:** fields — never regenerate them.
 `;
 }

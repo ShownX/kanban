@@ -631,12 +631,6 @@ export function RoadmapView({
 								{highlightedMarkdown}
 							</ReactMarkdown>
 						</div>
-						<RoadmapTasksSummary
-							board={board}
-							roadmap={parsedItems}
-							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
-							onPromoteAgentTasks={handlePromoteAgentTasks}
-						/>
 					</div>
 				</div>
 

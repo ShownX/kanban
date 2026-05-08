@@ -120,7 +120,7 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 		const linkedTaskIds: string[] = [];
 		const tasks: Array<{ taskId: string; title: string; agentCreated?: boolean }> = [];
 		const openQuestions: Array<{ id: string; text: string; resolved: boolean }> = [];
-		const sectionLines: Record<string, string[]> = { requirements: [], design: [] };
+		const sectionLines = { requirements: [] as string[], design: [] as string[] };
 
 		type Section =
 			| "none"

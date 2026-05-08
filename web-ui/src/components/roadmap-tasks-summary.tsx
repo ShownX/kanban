@@ -1,5 +1,5 @@
-import { Bot, Check, CircleDot, Clock, User } from "lucide-react";
-import type { ReactElement } from "react";
+import { Bot, Check, ChevronDown, ChevronRight, CircleDot, Clock, User } from "lucide-react";
+import { type ReactElement, useState } from "react";
 
 import type { BoardCard, BoardColumnId, BoardData, RoadmapItem } from "@/types";
 
@@ -123,6 +123,8 @@ export function RoadmapTasksSummary({
 							) : null}
 						</div>
 
+						<SubsectionDetails item={item} />
+
 						{!hasAnyTasks ? (
 							<p className="text-text-tertiary text-xs mt-2 mb-0 italic">No tasks yet.</p>
 						) : (
@@ -178,5 +180,69 @@ function TaskRow({ info }: { info: TaskRenderInfo }): ReactElement {
 				<span className="shrink-0 rounded bg-surface-3 px-1 py-0.5 text-[10px] text-text-secondary">agent</span>
 			) : null}
 		</li>
+	);
+}
+
+function SubsectionDetails({ item }: { item: RoadmapItem }): ReactElement | null {
+	const hasContent = item.requirements || item.design || item.openQuestions.length > 0;
+	const [expanded, setExpanded] = useState(false);
+
+	if (!hasContent) return null;
+
+	const openCount = item.openQuestions.filter((q) => !q.resolved).length;
+
+	return (
+		<div className="mt-2">
+			<button
+				type="button"
+				onClick={() => setExpanded((prev) => !prev)}
+				className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
+			>
+				{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+				<span>Spec details</span>
+				{openCount > 0 ? (
+					<span className="ml-1 rounded bg-status-yellow/15 px-1 py-0.5 text-[10px] text-status-yellow">
+						{openCount} open question{openCount === 1 ? "" : "s"}
+					</span>
+				) : null}
+			</button>
+			{expanded ? (
+				<div className="mt-2 space-y-2 border-l-2 border-border pl-3">
+					{item.requirements ? (
+						<div>
+							<h4 className="text-[11px] font-semibold uppercase text-text-tertiary m-0">Requirements</h4>
+							<pre className="mt-1 whitespace-pre-wrap text-xs text-text-secondary font-mono bg-surface-0 rounded p-2 m-0 overflow-x-auto">
+								{item.requirements}
+							</pre>
+						</div>
+					) : null}
+					{item.design ? (
+						<div>
+							<h4 className="text-[11px] font-semibold uppercase text-text-tertiary m-0">Design</h4>
+							<pre className="mt-1 whitespace-pre-wrap text-xs text-text-secondary font-mono bg-surface-0 rounded p-2 m-0 overflow-x-auto">
+								{item.design}
+							</pre>
+						</div>
+					) : null}
+					{item.openQuestions.length > 0 ? (
+						<div>
+							<h4 className="text-[11px] font-semibold uppercase text-text-tertiary m-0">Open questions</h4>
+							<ul className="mt-1 list-none pl-0 space-y-0.5 m-0">
+								{item.openQuestions.map((q) => (
+									<li key={q.id} className="flex items-start gap-1.5 text-xs">
+										<span className={q.resolved ? "text-status-green" : "text-status-yellow"}>
+											{q.resolved ? "✓" : "?"}
+										</span>
+										<span className={q.resolved ? "text-text-tertiary line-through" : "text-text-primary"}>
+											{q.text}
+										</span>
+									</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+				</div>
+			) : null}
+		</div>
 	);
 }

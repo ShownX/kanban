@@ -509,6 +509,18 @@ export function RoadmapView({
 				<Button size="sm" variant="primary" disabled={annotations.length === 0} onClick={handleRequestUpdate}>
 					Update
 				</Button>
+				{onRequestUpdate ? (
+					<Button
+						size="sm"
+						onClick={() => {
+							onRequestUpdate(
+								'Read .kanban/ROADMAP.md and decompose each \'Planned\' roadmap item into discrete implementation tasks. For each task, run: kanban task create --prompt "..." --title "...". Make each task small enough for one agent session. If an item has a ### Requirements section, ensure each task maps to at least one requirement. Skip items that already have tasks.',
+							);
+						}}
+					>
+						⚡ Generate tasks
+					</Button>
+				) : null}
 			</div>
 
 			{/* Body */}
@@ -623,19 +635,7 @@ export function RoadmapView({
 							board={board}
 							roadmap={parsedItems}
 							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
-							onOpenCreateTasksDialog={(itemId) => setCreateTaskForItemId(itemId)}
 							onPromoteAgentTasks={handlePromoteAgentTasks}
-							onGenerateTasks={
-								onRequestUpdate
-									? (itemId) => {
-											const item = parsedItems.find((candidate) => candidate.id === itemId);
-											if (!item) return;
-											onRequestUpdate(
-												`Read .kanban/ROADMAP.md and decompose the roadmap item "${item.title}" (ID: ${item.id}) into discrete implementation tasks. For each task, run: kanban task create --prompt "..." --title "...". Make each task small enough for one agent session. If the item has a ### Requirements section, ensure each task maps to at least one requirement.`,
-											);
-										}
-									: undefined
-							}
 						/>
 					</div>
 				</div>

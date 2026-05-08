@@ -514,7 +514,29 @@ export function RoadmapView({
 						size="sm"
 						onClick={() => {
 							onRequestUpdate(
-								'Read .kanban/ROADMAP.md and decompose each \'Planned\' roadmap item into discrete implementation tasks. For each task, run: kanban task create --prompt "..." --title "...". Make each task small enough for one agent session. If an item has a ### Requirements section, ensure each task maps to at least one requirement. Skip items that already have tasks.',
+								`Before generating tasks, do the following:
+
+1. Run \`kanban task list\` to see all existing tasks and their statuses. Do NOT create tasks that already exist or duplicate existing work.
+
+2. Read .kanban/ROADMAP.md to understand the roadmap items and their requirements.
+
+3. For each roadmap item with status "Planned" or "In Progress" that needs more tasks:
+   - Analyze the current project state (check what code/files already exist) to understand what's already done.
+   - Create only the tasks that are still needed.
+   - Make each task small enough for one agent session.
+   - Use: kanban task create --prompt "..." --title "..."
+
+4. After creating tasks, wire dependencies so they execute in the right order:
+   - Use: kanban task link --task-id <waiting-task> --linked-task-id <prerequisite-task>
+   - The waiting task stays in backlog until the prerequisite moves to done.
+   - Tasks with no dependencies can run in parallel.
+
+5. Update the ### Tasks section in .kanban/ROADMAP.md with the created task IDs.
+
+Key rules:
+- Skip roadmap items that already have all their tasks created.
+- Never create duplicate tasks.
+- Order matters: foundational work (data models, configs) before features that depend on them.`,
 							);
 						}}
 					>

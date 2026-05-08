@@ -24,7 +24,7 @@ function createBoard(): RuntimeBoardData {
 
 function createRoadmapItem(overrides: Partial<RuntimeRoadmapItem> = {}): RuntimeRoadmapItem {
 	return {
-		id: "rm_test1",
+		id: "roadmap_test1",
 		title: "Test roadmap item",
 		description: "A test item",
 		status: "planned",
@@ -60,9 +60,9 @@ describe("createTasksFromRoadmapItem", () => {
 		);
 
 		expect(result.createdTasks).toHaveLength(2);
-		expect(result.createdTasks[0]?.roadmapItemId).toBe("rm_test1");
+		expect(result.createdTasks[0]?.roadmapItemId).toBe("roadmap_test1");
 		expect(result.createdTasks[0]?.createdBy).toBe("human");
-		expect(result.createdTasks[1]?.roadmapItemId).toBe("rm_test1");
+		expect(result.createdTasks[1]?.roadmapItemId).toBe("roadmap_test1");
 
 		const backlog = result.board.columns.find((column) => column.id === "backlog");
 		expect(backlog?.cards).toHaveLength(2);
@@ -92,7 +92,7 @@ describe("agentCreateSubtask", () => {
 			{
 				prompt: "child",
 				baseRef: "main",
-				roadmapItemId: "rm_test1",
+				roadmapItemId: "roadmap_test1",
 				agentCreatedCountForItem: 0,
 				agentCreatedBudget: 10,
 			},
@@ -111,7 +111,7 @@ describe("agentCreateSubtask", () => {
 		const parent = addTaskToColumn(
 			createBoard(),
 			"in_progress",
-			{ prompt: "parent", baseRef: "main", roadmapItemId: "rm_other", createdBy: "human" },
+			{ prompt: "parent", baseRef: "main", roadmapItemId: "roadmap_other", createdBy: "human" },
 			nextId,
 		);
 		const result = agentCreateSubtask(
@@ -120,7 +120,7 @@ describe("agentCreateSubtask", () => {
 			{
 				prompt: "child",
 				baseRef: "main",
-				roadmapItemId: "rm_test1",
+				roadmapItemId: "roadmap_test1",
 				agentCreatedCountForItem: 0,
 				agentCreatedBudget: 10,
 			},
@@ -139,7 +139,7 @@ describe("agentCreateSubtask", () => {
 		const parent = addTaskToColumn(
 			createBoard(),
 			"in_progress",
-			{ prompt: "parent", baseRef: "main", roadmapItemId: "rm_test1", createdBy: "agent:grandparent" },
+			{ prompt: "parent", baseRef: "main", roadmapItemId: "roadmap_test1", createdBy: "agent:grandparent" },
 			nextId,
 		);
 		const result = agentCreateSubtask(
@@ -148,7 +148,7 @@ describe("agentCreateSubtask", () => {
 			{
 				prompt: "child",
 				baseRef: "main",
-				roadmapItemId: "rm_test1",
+				roadmapItemId: "roadmap_test1",
 				agentCreatedCountForItem: 0,
 				agentCreatedBudget: 10,
 			},
@@ -167,7 +167,7 @@ describe("agentCreateSubtask", () => {
 		const parent = addTaskToColumn(
 			createBoard(),
 			"in_progress",
-			{ prompt: "parent", baseRef: "main", roadmapItemId: "rm_test1", createdBy: "human" },
+			{ prompt: "parent", baseRef: "main", roadmapItemId: "roadmap_test1", createdBy: "human" },
 			nextId,
 		);
 		const result = agentCreateSubtask(
@@ -176,7 +176,7 @@ describe("agentCreateSubtask", () => {
 			{
 				prompt: "child",
 				baseRef: "main",
-				roadmapItemId: "rm_test1",
+				roadmapItemId: "roadmap_test1",
 				agentCreatedCountForItem: 10,
 				agentCreatedBudget: 10,
 			},
@@ -195,7 +195,7 @@ describe("agentCreateSubtask", () => {
 		const parent = addTaskToColumn(
 			createBoard(),
 			"in_progress",
-			{ prompt: "parent", baseRef: "main", roadmapItemId: "rm_test1", createdBy: "human" },
+			{ prompt: "parent", baseRef: "main", roadmapItemId: "roadmap_test1", createdBy: "human" },
 			nextId,
 		);
 		const result = agentCreateSubtask(
@@ -204,7 +204,7 @@ describe("agentCreateSubtask", () => {
 			{
 				prompt: "child subtask",
 				baseRef: "main",
-				roadmapItemId: "rm_test1",
+				roadmapItemId: "roadmap_test1",
 				agentCreatedCountForItem: 0,
 				agentCreatedBudget: 10,
 			},
@@ -214,7 +214,7 @@ describe("agentCreateSubtask", () => {
 		if ("reason" in result) {
 			throw new Error(`expected success, got ${result.reason}`);
 		}
-		expect(result.createdTask.roadmapItemId).toBe("rm_test1");
+		expect(result.createdTask.roadmapItemId).toBe("roadmap_test1");
 		expect(result.createdTask.createdBy).toBe(`agent:${parent.task.id}`);
 		expect(result.createdTask.prompt).toBe("child subtask");
 
@@ -229,7 +229,7 @@ describe("promoteAgentTasksToRoadmapItem", () => {
 		const agentTask = addTaskToColumn(
 			createBoard(),
 			"backlog",
-			{ prompt: "agent task", baseRef: "main", roadmapItemId: "rm_test1", createdBy: "agent:parent1" },
+			{ prompt: "agent task", baseRef: "main", roadmapItemId: "roadmap_test1", createdBy: "agent:parent1" },
 			nextId,
 		);
 		const item = createRoadmapItem();
@@ -257,7 +257,7 @@ describe("promoteAgentTasksToRoadmapItem", () => {
 		const agentTask = addTaskToColumn(
 			createBoard(),
 			"backlog",
-			{ prompt: "agent task", baseRef: "main", roadmapItemId: "rm_test1", createdBy: "agent:parent1" },
+			{ prompt: "agent task", baseRef: "main", roadmapItemId: "roadmap_test1", createdBy: "agent:parent1" },
 			nextId,
 		);
 		const item = createRoadmapItem({

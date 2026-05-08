@@ -167,7 +167,7 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 
 		const ts = Date.now();
 		items.push({
-			id: explicitId ?? `rm_${crypto.randomUUID()}`,
+			id: explicitId ?? `roadmap_${crypto.randomUUID()}`,
 			title,
 			description: descLines.join("\n"),
 			status,

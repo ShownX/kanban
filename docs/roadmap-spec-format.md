@@ -76,7 +76,7 @@ and optional structured subsections.
 
 ```markdown
 ## <Title>
-**ID:** `rm_<uuid>`
+**ID:** `roadmap_<uuid>`
 **Status:** 🔵 Planned | 🟠 In Progress | 🟢 Done
 ```
 
@@ -254,7 +254,7 @@ Optionally committed as part of the task's PR.
 # Task t_signin01: Implement signin endpoint
 
 **Card:** `t_signin01`
-**Roadmap item:** `rm_abc123`
+**Roadmap item:** `roadmap_abc123`
 **Roadmap version:** 2
 **Agent:** codex
 **Completed:** 2026-05-07T22:00:00Z
@@ -340,7 +340,7 @@ Planned milestones:
   based on `Version:` mismatch. Task agents get system-prompt addendum.
 
 - **M5 — Spec split:** for large projects, promote a roadmap item into
-  `specs/<rm_id>.md`. The ROADMAP.md item becomes a one-line stub with a
+  `specs/<roadmap_id>.md`. The ROADMAP.md item becomes a one-line stub with a
   `**Spec:**` link. Parser handles both inline and linked specs.
 
 ## 9. Open questions about the format itself

@@ -9,6 +9,7 @@ interface RoadmapTasksSummaryProps {
 	agentCreatedTaskIdsByItemId: Record<string, string[]>;
 	onOpenCreateTasksDialog?: (itemId: string) => void;
 	onPromoteAgentTasks?: (itemId: string, taskIds: string[]) => void;
+	onGenerateTasks?: (itemId: string) => void;
 }
 
 interface TaskRenderInfo {
@@ -62,6 +63,7 @@ export function RoadmapTasksSummary({
 	agentCreatedTaskIdsByItemId,
 	onOpenCreateTasksDialog,
 	onPromoteAgentTasks,
+	onGenerateTasks,
 }: RoadmapTasksSummaryProps): ReactElement | null {
 	if (roadmap.length === 0) {
 		return null;
@@ -119,6 +121,15 @@ export function RoadmapTasksSummary({
 									className="shrink-0 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary hover:bg-surface-3"
 								>
 									+ Create tasks
+								</button>
+							) : null}
+							{onGenerateTasks ? (
+								<button
+									type="button"
+									onClick={() => onGenerateTasks(item.id)}
+									className="shrink-0 rounded border border-accent/50 bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20"
+								>
+									⚡ Generate tasks
 								</button>
 							) : null}
 						</div>

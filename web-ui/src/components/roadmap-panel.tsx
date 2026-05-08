@@ -618,6 +618,18 @@ export function RoadmapView({
 							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
 							onOpenCreateTasksDialog={(itemId) => setCreateTaskForItemId(itemId)}
 							onPromoteAgentTasks={handlePromoteAgentTasks}
+							onGenerateTasks={
+								onRequestUpdate
+									? (itemId) => {
+											const roadmapItems = (board.roadmap ?? []) as RoadmapItem[];
+											const item = roadmapItems.find((candidate) => candidate.id === itemId);
+											if (!item) return;
+											onRequestUpdate(
+												`Read .kanban/ROADMAP.md and decompose the roadmap item "${item.title}" (ID: ${item.id}) into discrete implementation tasks. For each task, run: kanban task create --prompt "..." --title "...". Make each task small enough for one agent session. If the item has a ### Requirements section, ensure each task maps to at least one requirement.`,
+											);
+										}
+									: undefined
+							}
 						/>
 					</div>
 				</div>

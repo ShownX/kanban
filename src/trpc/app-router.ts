@@ -618,6 +618,16 @@ export const runtimeAppRouter = t.router({
 				await writeRoadmapStateFile(ctx.workspaceScope.workspacePath, next);
 				return next;
 			}),
+		readDeliverable: workspaceProcedure
+			.input(z.object({ taskId: z.string() }))
+			.output(z.object({ markdown: z.string().nullable(), parsed: z.unknown().nullable() }))
+			.query(async ({ ctx, input }) => {
+				const { readDeliverableMd, parseDeliverableMd } = await import("../workspace/deliverable-file.js");
+				const md = await readDeliverableMd(ctx.workspaceScope.workspacePath, input.taskId);
+				if (!md) return { markdown: null, parsed: null };
+				const parsed = parseDeliverableMd(md, input.taskId);
+				return { markdown: md, parsed };
+			}),
 		runCommand: workspaceProcedure
 			.input(runtimeCommandRunRequestSchema)
 			.output(runtimeCommandRunResponseSchema)

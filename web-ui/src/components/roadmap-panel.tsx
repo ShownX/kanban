@@ -1,7 +1,9 @@
+import { createTasksFromRoadmapItem } from "@runtime-task-state";
 import { ArrowLeft, ExternalLink, FileUp, Save, X } from "lucide-react";
 import { createElement, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { RoadmapCreateTaskDialog } from "@/components/roadmap-create-task-dialog";
 import { RoadmapTasksSummary } from "@/components/roadmap-tasks-summary";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -216,6 +218,43 @@ export function RoadmapView({
 		return () => clearInterval(interval);
 	}, [loadFile]);
 
+	// Create-tasks dialog state + handler.
+	const [createTaskForItemId, setCreateTaskForItemId] = useState<string | null>(null);
+	const resolveDefaultBaseRef = useCallback((): string => {
+		for (const column of board.columns) {
+			for (const card of column.cards) {
+				if (card.baseRef) return card.baseRef;
+			}
+		}
+		return "main";
+	}, [board]);
+	const handleCreateTasksForItem = useCallback(
+		async (itemId: string, draft: { title: string; prompt: string }) => {
+			if (!workspaceId) return;
+			const roadmapItems = (board.roadmap ?? []) as RoadmapItem[];
+			const item = roadmapItems.find((candidate) => candidate.id === itemId);
+			if (!item) return;
+			const result = createTasksFromRoadmapItem(
+				board,
+				item,
+				[{ title: draft.title || undefined, prompt: draft.prompt, baseRef: resolveDefaultBaseRef() }],
+				() => crypto.randomUUID(),
+			);
+			const nextRoadmap = roadmapItems.map((candidate) =>
+				candidate.id === itemId ? result.updatedRoadmapItem : candidate,
+			);
+			onBoardChange({ ...result.board, roadmap: nextRoadmap });
+			try {
+				const trpc = getRuntimeTrpcClient(workspaceId);
+				await trpc.runtime.writeRoadmapFile.mutate({ items: nextRoadmap });
+			} catch {
+				// Best-effort — the board write already persisted the task; ROADMAP.md will
+				// be updated next time the user saves the markdown.
+			}
+		},
+		[board, onBoardChange, resolveDefaultBaseRef, workspaceId],
+	);
+
 	// Load roadmap-state.json (gitignored live dashboard state).
 	const [agentCreatedTaskIdsByItemId, setAgentCreatedTaskIdsByItemId] = useState<Record<string, string[]>>({});
 	useEffect(() => {
@@ -371,6 +410,20 @@ export function RoadmapView({
 
 	return (
 		<div className="flex flex-1 flex-col min-h-0 min-w-0">
+			<RoadmapCreateTaskDialog
+				open={createTaskForItemId !== null}
+				roadmapItemTitle={
+					((board.roadmap ?? []) as RoadmapItem[]).find((item) => item.id === createTaskForItemId)?.title ?? ""
+				}
+				onCancel={() => setCreateTaskForItemId(null)}
+				onConfirm={(draft) => {
+					const itemId = createTaskForItemId;
+					setCreateTaskForItemId(null);
+					if (itemId) {
+						void handleCreateTasksForItem(itemId, draft);
+					}
+				}}
+			/>
 			{/* Header */}
 			<div className="flex h-10 shrink-0 items-center gap-3 border-b border-border bg-surface-1 px-3">
 				<Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onClose} />
@@ -517,6 +570,7 @@ export function RoadmapView({
 							board={board}
 							roadmap={(board.roadmap ?? []) as RoadmapItem[]}
 							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
+							onOpenCreateTasksDialog={(itemId) => setCreateTaskForItemId(itemId)}
 						/>
 					</div>
 				</div>

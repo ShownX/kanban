@@ -1,4 +1,4 @@
-import { createTasksFromRoadmapItem } from "@runtime-task-state";
+import { createTasksFromRoadmapItem, promoteAgentTasksToRoadmapItem } from "@runtime-task-state";
 import { ArrowLeft, ExternalLink, FileUp, Save, X } from "lucide-react";
 import { createElement, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -281,6 +281,52 @@ export function RoadmapView({
 			clearInterval(interval);
 		};
 	}, [workspaceId]);
+
+	const handlePromoteAgentTasks = useCallback(
+		async (itemId: string, taskIds: string[]) => {
+			if (!workspaceId || taskIds.length === 0) return;
+			const roadmapItems = (board.roadmap ?? []) as RoadmapItem[];
+			const item = roadmapItems.find((candidate) => candidate.id === itemId);
+			if (!item) return;
+			const result = promoteAgentTasksToRoadmapItem(item, board, taskIds);
+			if (result.promotedTaskIds.length === 0) return;
+			const nextRoadmap = roadmapItems.map((candidate) =>
+				candidate.id === itemId ? result.updatedRoadmapItem : candidate,
+			);
+			onBoardChange({ ...board, roadmap: nextRoadmap });
+
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			try {
+				await trpc.runtime.writeRoadmapFile.mutate({ items: nextRoadmap });
+			} catch {
+				// Best-effort: markdown write may fail; state write below still helpful.
+			}
+
+			// Remove promoted task IDs from roadmap-state.json's agentCreatedTaskIds.
+			try {
+				const currentState = await trpc.runtime.readRoadmapState.query();
+				const existingItemState = currentState.itemStates[itemId];
+				const promoted = new Set(result.promotedTaskIds);
+				const nextAgentCreatedTaskIds = (existingItemState?.agentCreatedTaskIds ?? []).filter(
+					(taskId) => !promoted.has(taskId),
+				);
+				const nextItemStates = {
+					...currentState.itemStates,
+					[itemId]: {
+						itemId,
+						agentCreatedTaskIds: nextAgentCreatedTaskIds,
+						agentComments: existingItemState?.agentComments ?? [],
+						lastUpdatedAt: Date.now(),
+					},
+				};
+				await trpc.runtime.writeRoadmapState.mutate({ itemStates: nextItemStates });
+				setAgentCreatedTaskIdsByItemId((prev) => ({ ...prev, [itemId]: nextAgentCreatedTaskIds }));
+			} catch {
+				// Best-effort: the next poll will reconcile the UI from the file.
+			}
+		},
+		[board, onBoardChange, workspaceId],
+	);
 
 	// Pre-process markdown with highlight markers (skip resolved)
 	const activeAnnotations = useMemo(() => annotations.filter((a) => !a.resolved), [annotations]);
@@ -571,6 +617,7 @@ export function RoadmapView({
 							roadmap={(board.roadmap ?? []) as RoadmapItem[]}
 							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
 							onOpenCreateTasksDialog={(itemId) => setCreateTaskForItemId(itemId)}
+							onPromoteAgentTasks={handlePromoteAgentTasks}
 						/>
 					</div>
 				</div>

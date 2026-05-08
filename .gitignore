@@ -25,3 +25,6 @@ packages/desktop/runtime-child.js
 packages/desktop/runtime-child-env.js
 packages/desktop/desktop-preflight.js
 packages/desktop/cli
+
+# Gitignored kanban live dashboard state (ROADMAP.md is the committed spec)
+.kanban/roadmap-state.json

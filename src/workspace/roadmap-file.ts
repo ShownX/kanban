@@ -32,14 +32,21 @@ export function serializeRoadmap(items: RuntimeRoadmapItem[]): string {
 	const lines: string[] = ["# Roadmap\n"];
 	for (const item of items) {
 		lines.push(`## ${item.title}`);
+		lines.push(`**ID:** \`${item.id}\``);
 		lines.push(`**Status:** ${formatStatus(item.status)}\n`);
 		if (item.description) {
 			lines.push(`${item.description}\n`);
 		}
-		if (item.linkedTaskIds.length > 0) {
-			lines.push("**Linked Tasks:**");
-			for (const taskId of item.linkedTaskIds) {
-				lines.push(`- \`${taskId}\``);
+		const taskRefs =
+			item.tasks.length > 0
+				? item.tasks
+				: item.linkedTaskIds.map((taskId) => ({ taskId, title: "", agentCreated: false }));
+		if (taskRefs.length > 0) {
+			lines.push("**Tasks:**");
+			for (const ref of taskRefs) {
+				const titleSuffix = ref.title ? ` ${ref.title}` : "";
+				const agentSuffix = ref.agentCreated ? " _(agent-created)_" : "";
+				lines.push(`- [ ] \`${ref.taskId}\`${titleSuffix}${agentSuffix}`);
 			}
 			lines.push("");
 		}
@@ -86,29 +93,57 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 		if (!title) continue;
 
 		let status: RuntimeRoadmapItemStatus = "planned";
+		let explicitId: string | null = null;
 		const descLines: string[] = [];
 		const comments: Array<{ id: string; text: string; createdAt: number }> = [];
 		const linkedTaskIds: string[] = [];
+		const tasks: Array<{ taskId: string; title: string; agentCreated?: boolean }> = [];
 		let inComments = false;
 		let inLinkedTasks = false;
+		let inTasks = false;
 
 		for (let i = 1; i < lines.length; i++) {
 			const line = lines[i] ?? "";
 			const trimmed = line.trim();
 			if (trimmed === "---") break;
 
+			if (trimmed.startsWith("**ID:**")) {
+				const match = trimmed.match(/\*\*ID:\*\*\s*`([^`]+)`/);
+				if (match?.[1]) explicitId = match[1];
+				continue;
+			}
 			if (trimmed.startsWith("**Status:**")) {
 				status = parseStatus(trimmed);
 				continue;
 			}
+			if (trimmed === "**Tasks:**") {
+				inTasks = true;
+				inLinkedTasks = false;
+				inComments = false;
+				continue;
+			}
 			if (trimmed === "**Linked Tasks:**") {
 				inLinkedTasks = true;
+				inTasks = false;
 				inComments = false;
 				continue;
 			}
 			if (trimmed === "**Comments:**") {
 				inComments = true;
 				inLinkedTasks = false;
+				inTasks = false;
+				continue;
+			}
+			if (inTasks) {
+				const match = trimmed.match(/^-\s*\[[ x~]\]\s*`([^`]+)`\s*(.*)$/);
+				if (match?.[1]) {
+					const taskId = match[1];
+					const rest = (match[2] ?? "").trim();
+					const agentCreated = /_\(agent-created\)_/i.test(rest);
+					const title = rest.replace(/\s*_\(agent-created\)_\s*$/i, "").trim();
+					tasks.push({ taskId, title, ...(agentCreated ? { agentCreated: true } : {}) });
+					linkedTaskIds.push(taskId);
+				}
 				continue;
 			}
 			if (inLinkedTasks) {
@@ -132,10 +167,11 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 
 		const ts = Date.now();
 		items.push({
-			id: crypto.randomUUID(),
+			id: explicitId ?? `rm_${crypto.randomUUID()}`,
 			title,
 			description: descLines.join("\n"),
 			status,
+			tasks,
 			linkedTaskIds,
 			comments,
 			createdAt: ts,
@@ -181,6 +217,7 @@ export function parseImportedText(content: string): RuntimeRoadmapItem[] {
 			title,
 			description: descLines.join("\n"),
 			status: "planned",
+			tasks: [],
 			linkedTaskIds: [],
 			comments: [],
 			createdAt: ts,
@@ -202,6 +239,7 @@ export function parseImportedText(content: string): RuntimeRoadmapItem[] {
 				title: trimmed.slice(0, 120),
 				description: trimmed.length > 120 ? trimmed : "",
 				status: "planned",
+				tasks: [],
 				linkedTaskIds: [],
 				comments: [],
 				createdAt: ts,

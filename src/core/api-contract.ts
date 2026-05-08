@@ -129,6 +129,9 @@ function normalizeRuntimeTaskClineSettings(input: {
 	};
 }
 
+export const runtimeBoardCardCreatedBySchema = z.union([z.literal("human"), z.string().startsWith("agent:")]);
+export type RuntimeBoardCardCreatedBy = z.infer<typeof runtimeBoardCardCreatedBySchema>;
+
 export const runtimeBoardCardSchema = z
 	.object({
 		id: z.string(),
@@ -144,6 +147,8 @@ export const runtimeBoardCardSchema = z
 		clineModelId: z.string().optional(),
 		clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
 		baseRef: z.string(),
+		roadmapItemId: z.string().optional(),
+		createdBy: runtimeBoardCardCreatedBySchema.optional(),
 		createdAt: z.number(),
 		updatedAt: z.number(),
 	})
@@ -194,11 +199,19 @@ export type RuntimeRoadmapComment = z.infer<typeof runtimeRoadmapCommentSchema>;
 export const runtimeRoadmapItemStatusSchema = z.enum(["planned", "in_progress", "done"]);
 export type RuntimeRoadmapItemStatus = z.infer<typeof runtimeRoadmapItemStatusSchema>;
 
+export const runtimeRoadmapItemTaskRefSchema = z.object({
+	taskId: z.string(),
+	title: z.string(),
+	agentCreated: z.boolean().optional(),
+});
+export type RuntimeRoadmapItemTaskRef = z.infer<typeof runtimeRoadmapItemTaskRefSchema>;
+
 export const runtimeRoadmapItemSchema = z.object({
 	id: z.string(),
 	title: z.string(),
 	description: z.string(),
 	status: runtimeRoadmapItemStatusSchema,
+	tasks: z.array(runtimeRoadmapItemTaskRefSchema).default([]),
 	linkedTaskIds: z.array(z.string()).default([]),
 	comments: z.array(runtimeRoadmapCommentSchema).default([]),
 	createdAt: z.number(),

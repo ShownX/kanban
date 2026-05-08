@@ -28,6 +28,7 @@ function createRoadmapItem(overrides: Partial<RuntimeRoadmapItem> = {}): Runtime
 		title: "Test roadmap item",
 		description: "A test item",
 		status: "planned",
+		openQuestions: [],
 		tasks: [],
 		linkedTaskIds: [],
 		comments: [],

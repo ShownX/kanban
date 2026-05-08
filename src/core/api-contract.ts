@@ -206,11 +206,23 @@ export const runtimeRoadmapItemTaskRefSchema = z.object({
 });
 export type RuntimeRoadmapItemTaskRef = z.infer<typeof runtimeRoadmapItemTaskRefSchema>;
 
+export const runtimeRoadmapOpenQuestionSchema = z.object({
+	id: z.string(),
+	text: z.string(),
+	resolved: z.boolean().default(false),
+});
+export type RuntimeRoadmapOpenQuestion = z.infer<typeof runtimeRoadmapOpenQuestionSchema>;
+
 export const runtimeRoadmapItemSchema = z.object({
 	id: z.string(),
 	title: z.string(),
 	description: z.string(),
 	status: runtimeRoadmapItemStatusSchema,
+	version: z.number().optional(),
+	owner: z.string().optional(),
+	requirements: z.string().optional(),
+	design: z.string().optional(),
+	openQuestions: z.array(runtimeRoadmapOpenQuestionSchema).default([]),
 	tasks: z.array(runtimeRoadmapItemTaskRefSchema).default([]),
 	linkedTaskIds: z.array(z.string()).default([]),
 	comments: z.array(runtimeRoadmapCommentSchema).default([]),

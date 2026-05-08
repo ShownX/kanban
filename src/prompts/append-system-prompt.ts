@@ -314,3 +314,49 @@ export function resolveHomeAgentAppendSystemPrompt(
 		agentId: resolveHomeAgentId(taskId),
 	});
 }
+
+/**
+ * System prompt addendum for task agents working on roadmap-linked cards.
+ * Instructs the agent to write a deliverable.md when the task is complete.
+ * Returns null for tasks not linked to a roadmap item.
+ */
+export function resolveTaskAgentDeliverablePrompt(taskId: string, roadmapItemId?: string): string | null {
+	if (!roadmapItemId) return null;
+	return `# Deliverable Protocol
+
+When you have completed all work for this task, write a deliverable file at:
+\`.kanban/tasks/${taskId}/deliverable.md\`
+
+Use this format:
+
+\`\`\`markdown
+# Task ${taskId}: <title>
+
+**Roadmap item:** \`${roadmapItemId}\`
+**Agent:** <your agent name>
+**Completed:** <ISO-8601 timestamp>
+
+## Summary
+One or two sentences describing what you did.
+
+## Requirements check
+- [x] <requirement> — <evidence file or test>
+- [~] <requirement> — <partial, explain>
+- [ ] <requirement> — <skipped, explain>
+
+## Changed files
+- path/to/file1.ts
+- path/to/file2.ts
+
+## Open questions
+- Any decisions you deferred or questions for the human reviewer.
+\`\`\`
+
+Rules:
+- Write the deliverable BEFORE signaling completion.
+- Use [x] for met, [~] for partial, [ ] for skipped requirements.
+- List ALL files you created or modified in Changed files.
+- If you have open questions, list them — do not make silent assumptions.
+- Keep the Summary concise (1-2 sentences).
+`;
+}

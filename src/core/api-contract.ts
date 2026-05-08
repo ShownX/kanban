@@ -1084,6 +1084,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	mode: runtimeTaskSessionModeSchema.optional(),
 	resumeFromTrash: z.boolean().optional(),
 	baseRef: z.string(),
+	roadmapItemId: z.string().optional(),
 	cols: z.number().int().positive().optional(),
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),

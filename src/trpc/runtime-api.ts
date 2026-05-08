@@ -43,6 +43,7 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
+import { resolveTaskAgentDeliverablePrompt } from "../prompts/append-system-prompt";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -285,7 +286,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					args: resolved.args,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
-					prompt: body.prompt,
+					prompt: body.roadmapItemId
+						? `${body.prompt}\n\n${resolveTaskAgentDeliverablePrompt(body.taskId, body.roadmapItemId) ?? ""}`
+						: body.prompt,
 					images: body.images,
 					startInPlanMode: body.startInPlanMode,
 					resumeFromTrash: body.resumeFromTrash,

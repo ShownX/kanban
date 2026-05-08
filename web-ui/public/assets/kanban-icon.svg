@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#1a1d21"/>
+  <!-- Three kanban columns -->
+  <!-- Column 1 (left) - 3 cards -->
+  <rect x="80" y="120" width="100" height="280" rx="12" fill="#2a2e33"/>
+  <rect x="92" y="140" width="76" height="44" rx="8" fill="#4a9eff"/>
+  <rect x="92" y="196" width="76" height="44" rx="8" fill="#4a9eff"/>
+  <rect x="92" y="252" width="76" height="44" rx="8" fill="#4a9eff"/>
+  <!-- Column 2 (center) - 2 cards -->
+  <rect x="206" y="120" width="100" height="280" rx="12" fill="#2a2e33"/>
+  <rect x="218" y="140" width="76" height="44" rx="8" fill="#f5a623"/>
+  <rect x="218" y="196" width="76" height="44" rx="8" fill="#f5a623"/>
+  <!-- Column 3 (right) - 1 card -->
+  <rect x="332" y="120" width="100" height="280" rx="12" fill="#2a2e33"/>
+  <rect x="344" y="140" width="76" height="44" rx="8" fill="#4cd964"/>
+</svg>

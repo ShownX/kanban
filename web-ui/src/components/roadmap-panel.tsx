@@ -199,6 +199,7 @@ export function RoadmapView({
 	);
 
 	// Load from file + poll every 3s for changes
+	const [parsedItems, setParsedItems] = useState<RoadmapItem[]>([]);
 	const loadFile = useCallback(() => {
 		if (!workspaceId) return;
 		const trpc = getRuntimeTrpcClient(workspaceId);
@@ -207,6 +208,12 @@ export function RoadmapView({
 			.then((r) => {
 				if (r.exists && r.content) {
 					setMarkdown((prev) => (prev !== r.content ? r.content : prev));
+					void trpc.runtime.importRoadmapText
+						.mutate({ content: r.content })
+						.then((result) => {
+							setParsedItems(result.items as RoadmapItem[]);
+						})
+						.catch(() => {});
 				}
 			})
 			.catch(() => {});
@@ -614,15 +621,14 @@ export function RoadmapView({
 						</div>
 						<RoadmapTasksSummary
 							board={board}
-							roadmap={(board.roadmap ?? []) as RoadmapItem[]}
+							roadmap={parsedItems}
 							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
 							onOpenCreateTasksDialog={(itemId) => setCreateTaskForItemId(itemId)}
 							onPromoteAgentTasks={handlePromoteAgentTasks}
 							onGenerateTasks={
 								onRequestUpdate
 									? (itemId) => {
-											const roadmapItems = (board.roadmap ?? []) as RoadmapItem[];
-											const item = roadmapItems.find((candidate) => candidate.id === itemId);
+											const item = parsedItems.find((candidate) => candidate.id === itemId);
 											if (!item) return;
 											onRequestUpdate(
 												`Read .kanban/ROADMAP.md and decompose the roadmap item "${item.title}" (ID: ${item.id}) into discrete implementation tasks. For each task, run: kanban task create --prompt "..." --title "...". Make each task small enough for one agent session. If the item has a ### Requirements section, ensure each task maps to at least one requirement.`,

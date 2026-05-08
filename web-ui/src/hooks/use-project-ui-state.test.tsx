@@ -16,6 +16,8 @@ function createBoard(): BoardData {
 			{ id: "trash", title: "Done", cards: [] },
 		],
 		dependencies: [],
+		roadmap: [],
+		roadmapAnnotations: [],
 	};
 }
 

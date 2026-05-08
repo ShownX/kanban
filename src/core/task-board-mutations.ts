@@ -4,6 +4,8 @@ import type {
 	RuntimeBoardColumnId,
 	RuntimeBoardData,
 	RuntimeBoardDependency,
+	RuntimeRoadmapItem,
+	RuntimeRoadmapItemTaskRef,
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
@@ -22,6 +24,8 @@ export interface RuntimeCreateTaskInput {
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
+	roadmapItemId?: string;
+	createdBy?: string;
 }
 
 export interface RuntimeUpdateTaskInput {
@@ -310,6 +314,8 @@ export function addTaskToColumn(
 		...(input.agentId ? { agentId: input.agentId } : {}),
 		...(input.clineSettings !== undefined ? { clineSettings: cloneTaskClineSettings(input.clineSettings) } : {}),
 		baseRef,
+		...(input.roadmapItemId ? { roadmapItemId: input.roadmapItemId } : {}),
+		...(input.createdBy ? { createdBy: input.createdBy } : {}),
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -654,4 +660,249 @@ export function updateTask(
 		task: updatedTask,
 		updated: true,
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Roadmap linkage helpers
+// ---------------------------------------------------------------------------
+
+export interface RuntimeRoadmapTaskDraft {
+	title?: string;
+	prompt: string;
+	baseRef: string;
+	startInPlanMode?: boolean;
+	autoReviewEnabled?: boolean;
+	autoReviewMode?: RuntimeTaskAutoReviewMode;
+	agentId?: RuntimeAgentId;
+	clineSettings?: RuntimeTaskClineSettings;
+}
+
+export interface RuntimeCreateTasksFromRoadmapItemResult {
+	board: RuntimeBoardData;
+	createdTasks: RuntimeBoardCard[];
+	updatedRoadmapItem: RuntimeRoadmapItem;
+}
+
+/**
+ * Create one or more human-authored tasks linked to a roadmap item.
+ * Each card gets roadmapItemId + createdBy: "human".
+ * Appends task refs to the roadmap item's tasks[] list (spec-visible, will be
+ * written back to ROADMAP.md by the caller).
+ */
+export function createTasksFromRoadmapItem(
+	board: RuntimeBoardData,
+	roadmapItem: RuntimeRoadmapItem,
+	drafts: RuntimeRoadmapTaskDraft[],
+	randomUuid: () => string,
+	now: number = Date.now(),
+): RuntimeCreateTasksFromRoadmapItemResult {
+	if (drafts.length === 0) {
+		return {
+			board,
+			createdTasks: [],
+			updatedRoadmapItem: roadmapItem,
+		};
+	}
+	let workingBoard = board;
+	const createdTasks: RuntimeBoardCard[] = [];
+	const newRefs: RuntimeRoadmapItemTaskRef[] = [];
+	for (const draft of drafts) {
+		const result = addTaskToColumn(
+			workingBoard,
+			"backlog",
+			{
+				title: draft.title,
+				prompt: draft.prompt,
+				baseRef: draft.baseRef,
+				startInPlanMode: draft.startInPlanMode,
+				autoReviewEnabled: draft.autoReviewEnabled,
+				autoReviewMode: draft.autoReviewMode,
+				agentId: draft.agentId,
+				clineSettings: draft.clineSettings,
+				roadmapItemId: roadmapItem.id,
+				createdBy: "human",
+			},
+			randomUuid,
+			now,
+		);
+		workingBoard = result.board;
+		createdTasks.push(result.task);
+		newRefs.push({
+			taskId: result.task.id,
+			title: result.task.title ?? "",
+		});
+	}
+	const updatedRoadmapItem: RuntimeRoadmapItem = {
+		...roadmapItem,
+		tasks: [...roadmapItem.tasks, ...newRefs],
+		linkedTaskIds: [...roadmapItem.linkedTaskIds, ...createdTasks.map((task) => task.id)],
+		updatedAt: now,
+	};
+	return {
+		board: workingBoard,
+		createdTasks,
+		updatedRoadmapItem,
+	};
+}
+
+export type RuntimeAgentCreateSubtaskReason =
+	| "parent_not_found"
+	| "parent_not_linked_to_roadmap_item"
+	| "parent_is_agent_created"
+	| "budget_exceeded";
+
+export interface RuntimeAgentCreateSubtaskResult {
+	board: RuntimeBoardData;
+	createdTask: RuntimeBoardCard;
+}
+
+export interface RuntimeAgentCreateSubtaskRefusal {
+	reason: RuntimeAgentCreateSubtaskReason;
+	detail?: string;
+}
+
+/**
+ * Create a single agent-authored subtask.
+ *
+ * Guards (enforced here, not in the prompt):
+ *   1. Parent task must exist.
+ *   2. Parent must have roadmapItemId === roadmapItemId argument.
+ *   3. Parent's createdBy must NOT start with "agent:" — depth=1 only.
+ *   4. agentCreatedCountForItem < budget.
+ *
+ * Agent-created subtasks are tracked in roadmap-state.json (gitignored) and
+ * only promoted into ROADMAP.md via the promote action. No dependency edge
+ * is created — parent and child run in parallel within the same roadmap item
+ * scope. Sequential behavior requires an explicit link from the human.
+ */
+export function agentCreateSubtask(
+	board: RuntimeBoardData,
+	parentTaskId: string,
+	input: {
+		title?: string;
+		prompt: string;
+		baseRef: string;
+		roadmapItemId: string;
+		agentCreatedCountForItem: number;
+		agentCreatedBudget: number;
+	},
+	randomUuid: () => string,
+	now: number = Date.now(),
+): RuntimeAgentCreateSubtaskResult | RuntimeAgentCreateSubtaskRefusal {
+	const parentRecord = findTaskInBoard(board, parentTaskId);
+	if (!parentRecord) {
+		return { reason: "parent_not_found", detail: `Parent task "${parentTaskId}" not found.` };
+	}
+	const parent = parentRecord.task;
+	if (!parent.roadmapItemId || parent.roadmapItemId !== input.roadmapItemId) {
+		return {
+			reason: "parent_not_linked_to_roadmap_item",
+			detail: "Parent task is not linked to the given roadmap item.",
+		};
+	}
+	if (parent.createdBy && parent.createdBy.startsWith("agent:")) {
+		return {
+			reason: "parent_is_agent_created",
+			detail: "Agent-created tasks cannot themselves spawn subtasks (depth=1 limit).",
+		};
+	}
+	if (input.agentCreatedCountForItem >= input.agentCreatedBudget) {
+		return {
+			reason: "budget_exceeded",
+			detail: `Per-roadmap-item agent-created task budget (${input.agentCreatedBudget}) reached.`,
+		};
+	}
+	const result = addTaskToColumn(
+		board,
+		"backlog",
+		{
+			title: input.title,
+			prompt: input.prompt,
+			baseRef: input.baseRef,
+			roadmapItemId: input.roadmapItemId,
+			createdBy: `agent:${parentTaskId}`,
+		},
+		randomUuid,
+		now,
+	);
+	return {
+		board: result.board,
+		createdTask: result.task,
+	};
+}
+
+export interface RuntimePromoteAgentTasksResult {
+	updatedRoadmapItem: RuntimeRoadmapItem;
+	promotedTaskIds: string[];
+	skippedTaskIds: string[];
+}
+
+/**
+ * Move agent-created task refs from transient state into the roadmap item's
+ * tasks[] list so they appear in the committed ROADMAP.md.
+ *
+ * Skips task IDs that are not found in the board, or are already present in
+ * the item's tasks[] list. Idempotent.
+ *
+ * Caller is responsible for removing the promoted IDs from
+ * roadmap-state.json's agentCreatedTaskIds after this returns.
+ */
+export function promoteAgentTasksToRoadmapItem(
+	roadmapItem: RuntimeRoadmapItem,
+	board: RuntimeBoardData,
+	taskIdsToPromote: string[],
+	now: number = Date.now(),
+): RuntimePromoteAgentTasksResult {
+	const existingIds = new Set(roadmapItem.tasks.map((ref) => ref.taskId));
+	const promotedTaskIds: string[] = [];
+	const skippedTaskIds: string[] = [];
+	const newRefs: RuntimeRoadmapItemTaskRef[] = [];
+	for (const taskId of taskIdsToPromote) {
+		if (existingIds.has(taskId)) {
+			skippedTaskIds.push(taskId);
+			continue;
+		}
+		const record = findTaskInBoard(board, taskId);
+		if (!record) {
+			skippedTaskIds.push(taskId);
+			continue;
+		}
+		newRefs.push({
+			taskId,
+			title: record.task.title ?? "",
+			agentCreated: true,
+		});
+		promotedTaskIds.push(taskId);
+	}
+	if (newRefs.length === 0) {
+		return {
+			updatedRoadmapItem: roadmapItem,
+			promotedTaskIds,
+			skippedTaskIds,
+		};
+	}
+	const updatedRoadmapItem: RuntimeRoadmapItem = {
+		...roadmapItem,
+		tasks: [...roadmapItem.tasks, ...newRefs],
+		linkedTaskIds: [...roadmapItem.linkedTaskIds, ...promotedTaskIds],
+		updatedAt: now,
+	};
+	return {
+		updatedRoadmapItem,
+		promotedTaskIds,
+		skippedTaskIds,
+	};
+}
+
+function findTaskInBoard(
+	board: RuntimeBoardData,
+	taskId: string,
+): { task: RuntimeBoardCard; columnId: RuntimeBoardColumnId } | null {
+	for (const column of board.columns) {
+		const task = column.cards.find((candidate) => candidate.id === taskId);
+		if (task) {
+			return { task, columnId: column.id };
+		}
+	}
+	return null;
 }

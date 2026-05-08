@@ -155,6 +155,8 @@ import {
 	runtimeRoadmapFileResponseSchema,
 	runtimeRoadmapFileWriteRequestSchema,
 	runtimeRoadmapImportRequestSchema,
+	runtimeRoadmapStateResponseSchema,
+	runtimeRoadmapStateWriteRequestSchema,
 	runtimeRunUpdateResponseSchema,
 	runtimeShellSessionStartRequestSchema,
 	runtimeShellSessionStartResponseSchema,
@@ -602,6 +604,19 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ input }) => {
 				const { parseImportedText } = await import("../workspace/roadmap-file.js");
 				return { items: parseImportedText(input.content) };
+			}),
+		readRoadmapState: workspaceProcedure.output(runtimeRoadmapStateResponseSchema).query(async ({ ctx }) => {
+			const { readRoadmapStateFile } = await import("../workspace/roadmap-state-file.js");
+			return await readRoadmapStateFile(ctx.workspaceScope.workspacePath);
+		}),
+		writeRoadmapState: workspaceProcedure
+			.input(runtimeRoadmapStateWriteRequestSchema)
+			.output(runtimeRoadmapStateResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				const { writeRoadmapStateFile } = await import("../workspace/roadmap-state-file.js");
+				const next = { version: 1 as const, itemStates: input.itemStates };
+				await writeRoadmapStateFile(ctx.workspaceScope.workspacePath, next);
+				return next;
 			}),
 		runCommand: workspaceProcedure
 			.input(runtimeCommandRunRequestSchema)

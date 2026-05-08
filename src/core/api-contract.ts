@@ -941,6 +941,36 @@ export const runtimeRoadmapImportRequestSchema = z.object({
 });
 export type RuntimeRoadmapImportRequest = z.infer<typeof runtimeRoadmapImportRequestSchema>;
 
+// ---- Roadmap live state (gitignored dashboard) ----
+
+export const runtimeRoadmapAgentCommentIoSchema = z.object({
+	id: z.string(),
+	taskId: z.string(),
+	text: z.string(),
+	isOpenQuestion: z.boolean().optional(),
+	createdAt: z.number(),
+});
+export type RuntimeRoadmapAgentCommentIo = z.infer<typeof runtimeRoadmapAgentCommentIoSchema>;
+
+export const runtimeRoadmapItemStateIoSchema = z.object({
+	itemId: z.string(),
+	agentCreatedTaskIds: z.array(z.string()).default([]),
+	agentComments: z.array(runtimeRoadmapAgentCommentIoSchema).default([]),
+	lastUpdatedAt: z.number(),
+});
+export type RuntimeRoadmapItemStateIo = z.infer<typeof runtimeRoadmapItemStateIoSchema>;
+
+export const runtimeRoadmapStateResponseSchema = z.object({
+	version: z.literal(1),
+	itemStates: z.record(z.string(), runtimeRoadmapItemStateIoSchema),
+});
+export type RuntimeRoadmapStateResponse = z.infer<typeof runtimeRoadmapStateResponseSchema>;
+
+export const runtimeRoadmapStateWriteRequestSchema = z.object({
+	itemStates: z.record(z.string(), runtimeRoadmapItemStateIoSchema),
+});
+export type RuntimeRoadmapStateWriteRequest = z.infer<typeof runtimeRoadmapStateWriteRequestSchema>;
+
 export const runtimeCommandRunResponseSchema = z.object({
 	exitCode: z.number(),
 	stdout: z.string(),

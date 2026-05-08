@@ -15,6 +15,7 @@ import { buildKanbanRuntimeUrl, getKanbanRuntimeOrigin, getRuntimeFetch } from "
 import {
 	addTaskDependency,
 	addTaskToColumn,
+	agentCreateSubtask,
 	deleteTasksFromBoard,
 	getTaskColumnId,
 	moveTaskToColumn,
@@ -527,6 +528,95 @@ async function createTask(input: {
 			autoReviewMode: created.autoReviewMode ?? "commit",
 			...(created.agentId ? { agentId: created.agentId } : {}),
 			...formatTaskClineSettings(created.clineSettings),
+		},
+	};
+}
+
+const AGENT_CREATED_BUDGET = 10;
+
+async function createSubtask(input: {
+	cwd: string;
+	parentTaskId: string;
+	prompt: string;
+	title?: string;
+	projectPath?: string;
+}): Promise<JsonRecord> {
+	const workspaceRepoPath = await resolveWorkspaceRepoPath(input.projectPath, input.cwd);
+	const workspaceId = await ensureRuntimeWorkspace(workspaceRepoPath);
+	const runtimeClient = createRuntimeTrpcClient(workspaceId);
+
+	// Read roadmap state to get the agent-created count for the parent's roadmap item.
+	const { readRoadmapStateFile, writeRoadmapStateFile } = await import("../workspace/roadmap-state-file.js");
+	const roadmapState = await readRoadmapStateFile(workspaceRepoPath);
+
+	const created = await updateRuntimeWorkspaceState(runtimeClient, workspaceRepoPath, (state) => {
+		// Find parent task and its roadmap item.
+		const parentRecord = findTaskRecord(state, input.parentTaskId);
+		if (!parentRecord) {
+			throw new Error(`Parent task "${input.parentTaskId}" not found.`);
+		}
+		const roadmapItemId = parentRecord.task.roadmapItemId;
+		if (!roadmapItemId) {
+			throw new Error(`Parent task "${input.parentTaskId}" is not linked to a roadmap item.`);
+		}
+
+		const itemState = roadmapState.itemStates[roadmapItemId];
+		const agentCreatedCount = itemState?.agentCreatedTaskIds.length ?? 0;
+
+		const resolvedBaseRef = parentRecord.task.baseRef || resolveTaskBaseRef(state);
+		if (!resolvedBaseRef) {
+			throw new Error("Could not determine task base branch.");
+		}
+
+		const result = agentCreateSubtask(
+			state.board,
+			input.parentTaskId,
+			{
+				title: input.title,
+				prompt: input.prompt,
+				baseRef: resolvedBaseRef,
+				roadmapItemId,
+				agentCreatedCountForItem: agentCreatedCount,
+				agentCreatedBudget: AGENT_CREATED_BUDGET,
+			},
+			() => globalThis.crypto.randomUUID(),
+		);
+
+		if ("reason" in result) {
+			throw new Error(result.detail ?? `Cannot create subtask: ${result.reason}`);
+		}
+
+		return {
+			board: result.board,
+			value: { task: result.createdTask, roadmapItemId },
+		};
+	});
+
+	// Update roadmap-state.json with the new agent-created task ID.
+	const itemId = created.roadmapItemId;
+	const existingItemState = roadmapState.itemStates[itemId];
+	const nextItemState = {
+		itemId,
+		agentCreatedTaskIds: [...(existingItemState?.agentCreatedTaskIds ?? []), created.task.id],
+		agentComments: existingItemState?.agentComments ?? [],
+		lastUpdatedAt: Date.now(),
+	};
+	await writeRoadmapStateFile(workspaceRepoPath, {
+		...roadmapState,
+		itemStates: { ...roadmapState.itemStates, [itemId]: nextItemState },
+	});
+
+	return {
+		ok: true,
+		task: {
+			id: created.task.id,
+			column: "backlog",
+			parentTaskId: input.parentTaskId,
+			roadmapItemId: itemId,
+			title: created.task.title,
+			prompt: created.task.prompt,
+			baseRef: created.task.baseRef,
+			createdBy: created.task.createdBy,
 		},
 	};
 }
@@ -1340,6 +1430,26 @@ export function registerTaskCommand(program: Command): void {
 					await startTask({
 						cwd: process.cwd(),
 						taskId: options.taskId,
+						projectPath: options.projectPath,
+					}),
+			);
+		});
+
+	task
+		.command("create-subtask")
+		.description("Create an agent-authored subtask linked to a parent task's roadmap item.")
+		.requiredOption("--parent-task-id <id>", "Parent task ID (must be linked to a roadmap item).")
+		.requiredOption("--prompt <text>", "Subtask prompt text.")
+		.option("--title <text>", "Subtask title.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { parentTaskId: string; prompt: string; title?: string; projectPath?: string }) => {
+			await runTaskCommand(
+				async () =>
+					await createSubtask({
+						cwd: process.cwd(),
+						parentTaskId: options.parentTaskId,
+						prompt: options.prompt,
+						title: options.title,
 						projectPath: options.projectPath,
 					}),
 			);

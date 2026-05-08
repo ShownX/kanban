@@ -933,6 +933,7 @@ export default function App(): ReactElement {
 												workspaceId={currentProjectId}
 												onRequestUpdate={(prompt) => {
 													if (!currentProjectId || !runtimeProjectConfig) return;
+													setHomeSidebarSection("agent");
 													const agentId = runtimeProjectConfig.selectedAgentId;
 													const homeTaskId = createHomeAgentSessionId(currentProjectId, agentId);
 													if (agentId === "cline") {

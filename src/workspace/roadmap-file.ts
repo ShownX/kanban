@@ -189,15 +189,15 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 			}
 
 			// Legacy bold-section headers (back compat with M1 format)
-			if (currentSection === "none" && trimmed === "**Tasks:**") {
+			if (trimmed === "**Tasks:**") {
 				currentSection = "legacy_tasks";
 				continue;
 			}
-			if (currentSection === "none" && trimmed === "**Linked Tasks:**") {
+			if (trimmed === "**Linked Tasks:**") {
 				currentSection = "legacy_tasks";
 				continue;
 			}
-			if (currentSection === "none" && trimmed === "**Comments:**") {
+			if (trimmed === "**Comments:**") {
 				currentSection = "legacy_comments";
 				continue;
 			}

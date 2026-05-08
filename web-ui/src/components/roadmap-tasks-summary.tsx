@@ -114,15 +114,6 @@ export function RoadmapTasksSummary({
 								<h3 className="text-sm font-semibold text-text-primary m-0 truncate">{item.title}</h3>
 								<p className="text-text-tertiary font-mono text-[11px] m-0">{item.id}</p>
 							</div>
-							{onOpenCreateTasksDialog ? (
-								<button
-									type="button"
-									onClick={() => onOpenCreateTasksDialog(item.id)}
-									className="shrink-0 rounded border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary hover:bg-surface-3"
-								>
-									+ Create tasks
-								</button>
-							) : null}
 							{onGenerateTasks ? (
 								<button
 									type="button"

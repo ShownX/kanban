@@ -4,7 +4,6 @@ import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, 
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
 import { Button } from "@/components/ui/button";
-import { ClineIcon } from "@/components/ui/cline-icon";
 import { cn } from "@/components/ui/cn";
 import {
 	AlertDialog,
@@ -16,6 +15,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/dialog";
+import { KanbanIcon } from "@/components/ui/kanban-icon";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import type { FeaturebaseFeedbackState } from "@/hooks/use-featurebase-feedback-widget";
@@ -299,8 +299,8 @@ export function ProjectNavigationPanel({
 			<div style={{ padding: "12px 12px 8px" }}>
 				<div className="flex items-center justify-between">
 					<div className="font-semibold text-base flex items-baseline gap-1.5">
-						<ClineIcon size={18} className="text-text-primary shrink-0 self-center" />
-						Cline <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
+						<KanbanIcon size={18} className="text-text-primary shrink-0 self-center" />
+						Kanban <span className="text-text-secondary font-normal text-xs">v{__APP_VERSION__}</span>
 					</div>
 					{isMobile ? (
 						<Button
@@ -550,39 +550,8 @@ function ProjectSupportFooter({
 }: {
 	shouldShowFeaturebaseFeedback: boolean;
 	featurebaseFeedbackState?: FeaturebaseFeedbackState;
-}): React.ReactElement {
-	const isOpening = featurebaseFeedbackState?.authState === "loading";
-
-	const handleAction = () => {
-		if (shouldShowFeaturebaseFeedback) {
-			void featurebaseFeedbackState?.openFeedbackWidget();
-		} else {
-			window.open(GITHUB_ISSUES_URL, "_blank");
-		}
-	};
-
-	const actionLabel = shouldShowFeaturebaseFeedback ? (isOpening ? "Opening..." : "Send feedback") : "Report issue";
-
-	return (
-		<div style={{ padding: "4px 12px 12px" }}>
-			<div className="flex items-start gap-2 rounded-md border border-border bg-surface-2 px-3 py-2.5">
-				<Info size={14} className="mt-px shrink-0 text-text-tertiary" />
-				<div className="flex flex-col gap-1.5">
-					<p className="m-0 text-xs text-text-secondary">
-						Kanban is in beta. Help us improve by sharing your experience.
-					</p>
-					<button
-						type="button"
-						className="m-0 flex cursor-pointer items-center gap-1 self-start border-none bg-transparent p-0 text-xs font-semibold text-text-secondary hover:text-text-primary active:text-text-tertiary disabled:cursor-default disabled:opacity-50"
-						disabled={shouldShowFeaturebaseFeedback && isOpening}
-						onClick={handleAction}
-					>
-						{actionLabel} {!isOpening && <ExternalLink size={11} />}
-					</button>
-				</div>
-			</div>
-		</div>
-	);
+}): React.ReactElement | null {
+	return null;
 }
 
 const MOD = isMacPlatform ? "⌘" : modifierKeyLabel;

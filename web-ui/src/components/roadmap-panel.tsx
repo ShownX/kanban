@@ -2,7 +2,7 @@ import { ArrowLeft, ExternalLink, FileUp, Save, X } from "lucide-react";
 import { createElement, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-
+import { RoadmapTasksSummary } from "@/components/roadmap-tasks-summary";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { ResizeHandle } from "@/resize/resize-handle";
@@ -215,6 +215,33 @@ export function RoadmapView({
 		const interval = setInterval(loadFile, 3000);
 		return () => clearInterval(interval);
 	}, [loadFile]);
+
+	// Load roadmap-state.json (gitignored live dashboard state).
+	const [agentCreatedTaskIdsByItemId, setAgentCreatedTaskIdsByItemId] = useState<Record<string, string[]>>({});
+	useEffect(() => {
+		if (!workspaceId) return;
+		let cancelled = false;
+		const loadState = () => {
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			void trpc.runtime.readRoadmapState
+				.query()
+				.then((state) => {
+					if (cancelled) return;
+					const next: Record<string, string[]> = {};
+					for (const [itemId, itemState] of Object.entries(state.itemStates)) {
+						next[itemId] = itemState.agentCreatedTaskIds;
+					}
+					setAgentCreatedTaskIdsByItemId(next);
+				})
+				.catch(() => {});
+		};
+		loadState();
+		const interval = setInterval(loadState, 3000);
+		return () => {
+			cancelled = true;
+			clearInterval(interval);
+		};
+	}, [workspaceId]);
 
 	// Pre-process markdown with highlight markers (skip resolved)
 	const activeAnnotations = useMemo(() => annotations.filter((a) => !a.resolved), [annotations]);
@@ -486,6 +513,11 @@ export function RoadmapView({
 								{highlightedMarkdown}
 							</ReactMarkdown>
 						</div>
+						<RoadmapTasksSummary
+							board={board}
+							roadmap={(board.roadmap ?? []) as RoadmapItem[]}
+							agentCreatedTaskIdsByItemId={agentCreatedTaskIdsByItemId}
+						/>
 					</div>
 				</div>
 

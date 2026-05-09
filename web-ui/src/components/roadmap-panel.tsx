@@ -4,6 +4,7 @@ import { createElement, type ReactElement, useCallback, useEffect, useMemo, useR
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RoadmapCreateTaskDialog } from "@/components/roadmap-create-task-dialog";
+import { RoadmapSpecView } from "@/components/roadmap-spec-view";
 import { RoadmapTasksSummary } from "@/components/roadmap-tasks-summary";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -172,6 +173,7 @@ export function RoadmapView({
 }: RoadmapViewProps): ReactElement {
 	const [markdown, setMarkdown] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
+	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 	const [annotations, setAnnotations] = useState<Annotation[]>(() => (board.roadmapAnnotations ?? []) as Annotation[]);
 	const [pendingText, setPendingText] = useState<string | null>(null);
 	const [commentDraft, setCommentDraft] = useState("");
@@ -461,6 +463,12 @@ export function RoadmapView({
 
 	const sortedAnnotations = useMemo(() => [...annotations].sort((a, b) => a.createdAt - b.createdAt), [annotations]);
 
+	const selectedItem = selectedItemId ? (parsedItems.find((item) => item.id === selectedItemId) ?? null) : null;
+
+	if (selectedItem) {
+		return <RoadmapSpecView item={selectedItem} onBack={() => setSelectedItemId(null)} />;
+	}
+
 	return (
 		<div className="flex flex-1 flex-col min-h-0 min-w-0">
 			<RoadmapCreateTaskDialog
@@ -560,6 +568,25 @@ Key rules:
 								(.kanban/ROADMAP.md) <ExternalLink size={10} />
 							</button>
 						</div>
+
+						{parsedItems.length > 0 ? (
+							<div className="mb-6 space-y-1">
+								{parsedItems.map((item) => (
+									<button
+										key={item.id}
+										type="button"
+										onClick={() => setSelectedItemId(item.id)}
+										className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-surface-2 transition-colors"
+									>
+										<span className="text-sm">
+											{item.status === "done" ? "🟢" : item.status === "in_progress" ? "🟠" : "🔵"}
+										</span>
+										<span className="flex-1 text-sm text-text-primary truncate">{item.title}</span>
+										<span className="text-xs text-text-tertiary">Spec →</span>
+									</button>
+								))}
+							</div>
+						) : null}
 
 						<div ref={markdownRef} className="relative" onMouseUp={handleMouseUp}>
 							<ReactMarkdown

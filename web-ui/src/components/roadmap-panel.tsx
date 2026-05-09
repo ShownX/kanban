@@ -569,25 +569,6 @@ Key rules:
 							</button>
 						</div>
 
-						{parsedItems.length > 0 ? (
-							<div className="mb-6 space-y-1">
-								{parsedItems.map((item) => (
-									<button
-										key={item.id}
-										type="button"
-										onClick={() => setSelectedItemId(item.id)}
-										className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left hover:bg-surface-2 transition-colors"
-									>
-										<span className="text-sm">
-											{item.status === "done" ? "🟢" : item.status === "in_progress" ? "🟠" : "🔵"}
-										</span>
-										<span className="flex-1 text-sm text-text-primary truncate">{item.title}</span>
-										<span className="text-xs text-text-tertiary">Spec →</span>
-									</button>
-								))}
-							</div>
-						) : null}
-
 						<div ref={markdownRef} className="relative" onMouseUp={handleMouseUp}>
 							<ReactMarkdown
 								remarkPlugins={[remarkGfm]}
@@ -598,12 +579,21 @@ Key rules:
 										activeId,
 										handleClickMark,
 									) as never,
-									h2: withHighlights(
-										"h2",
-										"text-lg font-semibold text-text-primary mt-5 mb-2 border-b border-border pb-1",
-										activeId,
-										handleClickMark,
-									) as never,
+									h2: (({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => {
+										const text = typeof children === "string" ? children : String(children ?? "");
+										const matchedItem = parsedItems.find((item) => item.title === text);
+										return (
+											<h2
+												{...props}
+												className="text-lg font-semibold text-text-primary mt-5 mb-2 border-b border-border pb-1 cursor-pointer hover:text-accent"
+												onClick={() => {
+													if (matchedItem) setSelectedItemId(matchedItem.id);
+												}}
+											>
+												{children}
+											</h2>
+										);
+									}) as never,
 									h3: withHighlights(
 										"h3",
 										"text-base font-semibold text-text-primary mt-4 mb-1.5",

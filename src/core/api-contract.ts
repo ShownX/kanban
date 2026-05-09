@@ -222,6 +222,12 @@ export const runtimeRoadmapItemSchema = z.object({
 	owner: z.string().optional(),
 	requirements: z.string().optional(),
 	design: z.string().optional(),
+	/** ISO 8601 date (YYYY-MM-DD) marking the planned start of the roadmap item. */
+	startDate: z.string().optional(),
+	/** ISO 8601 date (YYYY-MM-DD) marking the planned end of the roadmap item. */
+	endDate: z.string().optional(),
+	/** Whether this roadmap item represents a milestone on the timeline. */
+	milestone: z.boolean().optional(),
 	openQuestions: z.array(runtimeRoadmapOpenQuestionSchema).default([]),
 	tasks: z.array(runtimeRoadmapItemTaskRefSchema).default([]),
 	linkedTaskIds: z.array(z.string()).default([]),

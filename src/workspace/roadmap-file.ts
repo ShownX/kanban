@@ -36,6 +36,9 @@ export function serializeRoadmap(items: RuntimeRoadmapItem[]): string {
 		lines.push(`**Status:** ${formatStatus(item.status)}`);
 		if (item.version != null) lines.push(`**Version:** ${item.version}`);
 		if (item.owner) lines.push(`**Owner:** ${item.owner}`);
+		if (item.startDate && isValidIsoDate(item.startDate)) lines.push(`**Start:** ${item.startDate}`);
+		if (item.endDate && isValidIsoDate(item.endDate)) lines.push(`**End:** ${item.endDate}`);
+		if (item.milestone === true) lines.push(`**Milestone:** true`);
 		lines.push("");
 		if (item.description) {
 			lines.push(`${item.description}\n`);
@@ -102,6 +105,32 @@ function parseStatus(text: string): RuntimeRoadmapItemStatus {
 	return "planned";
 }
 
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Validate an ISO 8601 calendar date in `YYYY-MM-DD` form.
+ * Rejects malformed strings, out-of-range months/days, and non-existent
+ * calendar dates (e.g. Feb 30, Apr 31).
+ */
+export function isValidIsoDate(value: string): boolean {
+	if (!ISO_DATE_PATTERN.test(value)) return false;
+	const [yearStr, monthStr, dayStr] = value.split("-");
+	const year = Number.parseInt(yearStr ?? "", 10);
+	const month = Number.parseInt(monthStr ?? "", 10);
+	const day = Number.parseInt(dayStr ?? "", 10);
+	if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return false;
+	if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+	const d = new Date(Date.UTC(year, month - 1, day));
+	if (Number.isNaN(d.getTime())) return false;
+	return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day;
+}
+
+function warnMalformed(label: string, rawValue: string, itemTitle: string): void {
+	// Use stderr to surface parse warnings without relying on console (which
+	// is linted out of src/) and without requiring a pluggable logger.
+	process.stderr.write(`[roadmap-file] Ignoring malformed ${label} "${rawValue}" for roadmap item "${itemTitle}"\n`);
+}
+
 export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 	const items: RuntimeRoadmapItem[] = [];
 	const sections = content.split(/^## /m).slice(1);
@@ -115,6 +144,9 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 		let explicitId: string | null = null;
 		let version: number | undefined;
 		let owner: string | undefined;
+		let startDate: string | undefined;
+		let endDate: string | undefined;
+		let milestone: boolean | undefined;
 		const descLines: string[] = [];
 		const comments: Array<{ id: string; text: string; createdAt: number }> = [];
 		const linkedTaskIds: string[] = [];
@@ -156,6 +188,42 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 				}
 				if (trimmed.startsWith("**Owner:**")) {
 					owner = trimmed.replace(/^\*\*Owner:\*\*\s*/, "").trim() || undefined;
+					continue;
+				}
+				if (trimmed.startsWith("**Start:**")) {
+					const raw = trimmed.replace(/^\*\*Start:\*\*\s*/, "").trim();
+					if (raw === "") {
+						// Explicitly empty — treat as absent, no warning.
+					} else if (isValidIsoDate(raw)) {
+						startDate = raw;
+					} else {
+						warnMalformed("Start date", raw, title);
+					}
+					continue;
+				}
+				if (trimmed.startsWith("**End:**")) {
+					const raw = trimmed.replace(/^\*\*End:\*\*\s*/, "").trim();
+					if (raw === "") {
+						// Explicitly empty — treat as absent, no warning.
+					} else if (isValidIsoDate(raw)) {
+						endDate = raw;
+					} else {
+						warnMalformed("End date", raw, title);
+					}
+					continue;
+				}
+				if (trimmed.startsWith("**Milestone:**")) {
+					const raw = trimmed
+						.replace(/^\*\*Milestone:\*\*\s*/, "")
+						.trim()
+						.toLowerCase();
+					if (raw === "true" || raw === "yes") {
+						milestone = true;
+					} else if (raw === "false" || raw === "no" || raw === "") {
+						milestone = false;
+					} else {
+						warnMalformed("Milestone flag", raw, title);
+					}
 					continue;
 				}
 			}
@@ -269,6 +337,9 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 			...(owner ? { owner } : {}),
 			...(requirements ? { requirements } : {}),
 			...(design ? { design } : {}),
+			...(startDate ? { startDate } : {}),
+			...(endDate ? { endDate } : {}),
+			...(milestone != null ? { milestone } : {}),
 			openQuestions,
 			tasks,
 			linkedTaskIds,

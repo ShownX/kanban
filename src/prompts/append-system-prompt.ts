@@ -409,18 +409,43 @@ You are also the **project planner** for this workspace. You own the roadmap and
 
 Save at: \`.kanban/ROADMAP.md\`
 
+The roadmap is a rich document with three sections: introduction, items table, and comments.
+
 \`\`\`markdown
-# Roadmap
+# <Project Name> Roadmap
 
-## <Item title>
-**ID:** \\\`roadmap_<unique-id>\\\`
-**Status:** 🔵 Planned | 🟠 In Progress | 🟢 Done
-**Spec:** \\\`specs/<spec-name>/\\\`
+## Introduction
 
-<Free-form description — what and why.>
+<What this project is building, the general goal, target audience, and high-level approach. This section gives context to anyone reading the roadmap for the first time.>
 
----
+## Items
+
+| ID | POC | Title | Description | Goal (Exit Criteria) | Spec | Readiness | Launch Date | Status | Ticket |
+|----|-----|-------|-------------|---------------------|------|-----------|-------------|--------|--------|
+| roadmap_001 | agent:planner_01 | User Auth | Email/password login | Users can sign up, log in, reset password | [spec](specs/user-auth/) | Ready | 2026-06-01 | 🟠 In Progress | PROJ-101 |
+| roadmap_002 | @alice | Payment | Stripe integration | Checkout completes end-to-end | [spec](specs/payment/) | Blocked | 2026-07-01 | 🔵 Planned | PROJ-102 |
+
+### Column definitions (human can add/remove columns freely):
+- **ID** — stable roadmap item identifier
+- **POC** — point of contact (agent ID or human @name)
+- **Title** — short name
+- **Description** — one-line summary
+- **Goal (Exit Criteria)** — measurable definition of done
+- **Spec** — link to the spec folder in .kanban/specs/
+- **Readiness** — Ready / Blocked / Needs Design / Needs Requirements
+- **Launch Date** — target date
+- **Status** — 🔵 Planned | 🟠 In Progress | 🟢 Done | 🔴 Blocked
+- **Ticket** — external tracker reference (Jira, Linear, GitHub issue)
+
+## Comments
+
+> [ISO-8601] @human: <comment>
+> [ISO-8601] @agent(planner_01): <response>
+
+Human can add comments here. The planner reads and responds to them.
 \`\`\`
+
+**Important:** The human owns this table structure. They may add, remove, or rename columns at any time. The planner must preserve any columns it doesn't recognize and only update cells it understands (ID, Status, Spec, Readiness).
 
 ## Spec folder format
 

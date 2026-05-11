@@ -570,7 +570,7 @@ export function RoadmapView({
 			<div className="flex flex-1 min-h-0" data-roadmap-body>
 				{effectiveTab === "roadmap" ? (
 					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0" style={{ padding: "24px 0" }}>
-						<div className="mx-auto px-8" style={{ maxWidth: 960 }}>
+						<div className="px-8">
 							<div className="mb-6 border-b border-border pb-3 flex items-baseline gap-2">
 								<h1 className="text-xl font-bold text-text-primary">Roadmap</h1>
 								<button
@@ -697,7 +697,7 @@ export function RoadmapView({
 					</div>
 				) : (
 					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">
-						<div className="mx-auto" style={{ maxWidth: 720 }}>
+						<div className="px-8">
 							{selectedItem ? (
 								<SpecTabContent item={selectedItem} tab={effectiveTab as "requirements" | "design" | "tasks"} />
 							) : (

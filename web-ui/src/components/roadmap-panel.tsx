@@ -1,14 +1,10 @@
 import { createTasksFromRoadmapItem, promoteAgentTasksToRoadmapItem } from "@runtime-task-state";
-import { ArrowLeft, ExternalLink, FileUp, Save, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, X } from "lucide-react";
 import { createElement, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RoadmapCreateTaskDialog } from "@/components/roadmap-create-task-dialog";
-import { RoadmapSpecView } from "@/components/roadmap-spec-view";
-import { RoadmapTasksSummary } from "@/components/roadmap-tasks-summary";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/components/ui/cn";
-import { ResizeHandle } from "@/resize/resize-handle";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -172,7 +168,7 @@ export function RoadmapView({
 	onRequestUpdate,
 }: RoadmapViewProps): ReactElement {
 	const [markdown, setMarkdown] = useState("");
-	const [isSaving, setIsSaving] = useState(false);
+	const [_isSaving, setIsSaving] = useState(false);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>("__overall__");
 	const [activeTab, setActiveTab] = useState<"roadmap" | "requirements" | "design" | "tasks">("requirements");
 	const [annotations, setAnnotations] = useState<Annotation[]>(() => (board.roadmapAnnotations ?? []) as Annotation[]);
@@ -182,12 +178,12 @@ export function RoadmapView({
 	const [activeId, setActiveId] = useState<string | null>(null);
 
 	const markdownRef = useRef<HTMLDivElement>(null);
-	const fileInputRef = useRef<HTMLInputElement>(null);
+	const _fileInputRef = useRef<HTMLInputElement>(null);
 	const nextColorIdx = useRef(0);
 
-	const [commentsPanelWidth, setCommentsPanelWidth] = useState(280);
+	const [_commentsPanelWidth, setCommentsPanelWidth] = useState(280);
 	const { startDrag } = useResizeDrag();
-	const handleResize = useCallback(
+	const _handleResize = useCallback(
 		(e: React.MouseEvent<HTMLDivElement>) => {
 			const right =
 				(e.currentTarget.closest("[data-roadmap-body]") as HTMLElement | null)?.getBoundingClientRect().right ??
@@ -266,7 +262,7 @@ export function RoadmapView({
 	);
 
 	// Load roadmap-state.json (gitignored live dashboard state).
-	const [agentCreatedTaskIdsByItemId, setAgentCreatedTaskIdsByItemId] = useState<Record<string, string[]>>({});
+	const [_agentCreatedTaskIdsByItemId, setAgentCreatedTaskIdsByItemId] = useState<Record<string, string[]>>({});
 	useEffect(() => {
 		if (!workspaceId) return;
 		let cancelled = false;
@@ -292,7 +288,7 @@ export function RoadmapView({
 		};
 	}, [workspaceId]);
 
-	const handlePromoteAgentTasks = useCallback(
+	const _handlePromoteAgentTasks = useCallback(
 		async (itemId: string, taskIds: string[]) => {
 			if (!workspaceId || taskIds.length === 0) return;
 			const roadmapItems = (board.roadmap ?? []) as RoadmapItem[];
@@ -392,7 +388,7 @@ export function RoadmapView({
 		[workspaceId, board, onBoardChange],
 	);
 
-	const handleRequestUpdate = useCallback(() => {
+	const _handleRequestUpdate = useCallback(() => {
 		if (!onRequestUpdate || annotations.length === 0) return;
 		const commentLines = annotations.map((a) => `- On "${a.selectedText}": ${a.comment}`).join("\n");
 		const prompt = `Please update the .kanban/ROADMAP.md file based on these review comments:\n\n${commentLines}\n\nRead the current .kanban/ROADMAP.md, apply the feedback, and write the updated version.`;
@@ -451,7 +447,7 @@ export function RoadmapView({
 		[activeId],
 	);
 
-	const handleImportFile = useCallback(
+	const _handleImportFile = useCallback(
 		async (file: File) => {
 			const text = await file.text();
 			if (text.trim()) {
@@ -462,7 +458,7 @@ export function RoadmapView({
 		[saveMarkdown],
 	);
 
-	const sortedAnnotations = useMemo(() => [...annotations].sort((a, b) => a.createdAt - b.createdAt), [annotations]);
+	const _sortedAnnotations = useMemo(() => [...annotations].sort((a, b) => a.createdAt - b.createdAt), [annotations]);
 
 	const specItems = parsedItems.filter((item) => item.id.startsWith("roadmap_"));
 	const selectedItem = selectedItemId
@@ -711,7 +707,7 @@ export function RoadmapView({
 			</div>
 
 			{/* Selection popover */}
-			{popover && (
+			{popover && !pendingText && (
 				<div
 					data-popover
 					className="fixed z-50 rounded-md border border-border bg-surface-1 shadow-lg"
@@ -727,6 +723,82 @@ export function RoadmapView({
 					>
 						💬 Comment
 					</button>
+				</div>
+			)}
+
+			{/* Inline comment input (Quip-style) */}
+			{pendingText && (
+				<div
+					className="fixed z-50 w-80 rounded-lg border border-accent bg-surface-1 shadow-xl p-3"
+					style={{ left: 100, top: 120 }}
+				>
+					<p className="text-[11px] text-text-tertiary m-0 mb-1 truncate">
+						On: &ldquo;{pendingText.slice(0, 60)}
+						{pendingText.length > 60 ? "…" : ""}&rdquo;
+					</p>
+					<textarea
+						rows={3}
+						value={commentDraft}
+						onChange={(e) => setCommentDraft(e.target.value)}
+						placeholder="Add your comment…"
+						className="w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus resize-none"
+						onKeyDown={(e) => {
+							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+								e.preventDefault();
+								submitComment();
+							}
+							if (e.key === "Escape") setPendingText(null);
+						}}
+					/>
+					<div className="flex items-center justify-between mt-2">
+						<span className="text-[10px] text-text-tertiary">⌘+Enter to send</span>
+						<div className="flex gap-1.5">
+							<button
+								type="button"
+								onClick={() => setPendingText(null)}
+								className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary rounded"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={submitComment}
+								disabled={!commentDraft.trim()}
+								className="px-2 py-1 text-xs font-medium text-white bg-accent rounded disabled:opacity-40"
+							>
+								Add
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* Inline comments list */}
+			{annotations.length > 0 && effectiveTab === "roadmap" && (
+				<div className="absolute bottom-0 left-0 right-0 border-t border-border bg-surface-1 max-h-[200px] overflow-y-auto p-3">
+					<div className="flex items-center justify-between mb-2">
+						<span className="text-[11px] font-medium text-text-tertiary uppercase">
+							Comments ({annotations.length})
+						</span>
+					</div>
+					<div className="space-y-2">
+						{annotations.map((ann) => (
+							<div key={ann.id} className="flex items-start gap-2 text-xs">
+								<span className="shrink-0 w-1 h-1 mt-1.5 rounded-full" style={{ background: ann.color }} />
+								<div className="min-w-0 flex-1">
+									<span className="text-text-tertiary">&ldquo;{ann.selectedText.slice(0, 40)}&rdquo;</span>
+									<p className="m-0 mt-0.5 text-text-primary">{ann.comment}</p>
+								</div>
+								<button
+									type="button"
+									onClick={() => deleteAnnotation(ann.id)}
+									className="shrink-0 text-text-tertiary hover:text-status-red"
+								>
+									<X size={10} />
+								</button>
+							</div>
+						))}
+					</div>
 				</div>
 			)}
 		</div>

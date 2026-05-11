@@ -422,20 +422,22 @@ The roadmap is a rich document with three sections: introduction, items table, a
 
 | ID | POC | Title | Description | Goal (Exit Criteria) | Spec | Readiness | Launch Date | Status | Ticket |
 |----|-----|-------|-------------|---------------------|------|-----------|-------------|--------|--------|
-| roadmap_001 | agent:planner_01 | User Auth | Email/password login | Users can sign up, log in, reset password | [spec](specs/user-auth/) | Ready | 2026-06-01 | 🟠 In Progress | PROJ-101 |
-| roadmap_002 | @alice | Payment | Stripe integration | Checkout completes end-to-end | [spec](specs/payment/) | Blocked | 2026-07-01 | 🔵 Planned | PROJ-102 |
+| 1 | kiro_default | User Auth | Email/password login | Users can sign up, log in, reset password | [spec](specs/user-auth/) | Ready | 2026-06-01 | 🟠 In Progress | PROJ-101 |
+| 2 | kiro_default | Payment | Stripe integration | Checkout completes end-to-end | [spec](specs/payment/) | Blocked | 2026-07-01 | 🔵 Planned | PROJ-102 |
 
 ### Column definitions (human can add/remove columns freely):
-- **ID** — stable roadmap item identifier
-- **POC** — point of contact (agent ID or human @name)
+- **ID** — simple incrementing number (1, 2, 3, ...)
+- **POC** — point of contact: the exact agent name (e.g., kiro_default, kiro_planner) or human @name
 - **Title** — short name
 - **Description** — one-line summary
 - **Goal (Exit Criteria)** — measurable definition of done
 - **Spec** — link to the spec folder in .kanban/specs/
 - **Readiness** — Ready / Blocked / Needs Design / Needs Requirements
 - **Launch Date** — target date
-- **Status** — 🔵 Planned | 🟠 In Progress | 🟢 Done | 🔴 Blocked
+- **Status** — 🔵 Planned | 🟠 In Progress | 🟢 Done | 🔴 Blocked. Must reflect the actual project state (check the repo to determine what's already built)
 - **Ticket** — external tracker reference (Jira, Linear, GitHub issue)
+
+**Important:** Before setting Status, check the repository to see what code/features already exist. Items with existing implementation should be marked 🟠 In Progress or 🟢 Done accordingly.
 
 ## Comments
 

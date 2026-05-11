@@ -491,7 +491,7 @@ export function RoadmapView({
 				} satisfies RoadmapItem)
 			: (parsedItems.find((item) => item.id === selectedItemId) ?? null)
 		: null;
-	const effectiveTab = selectedItemId && selectedItem ? activeTab : "roadmap";
+	const effectiveTab = activeTab;
 
 	return (
 		<div className="flex flex-1 flex-col min-h-0 min-w-0">
@@ -512,88 +512,58 @@ export function RoadmapView({
 			{/* Header */}
 			<div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border bg-surface-1 px-3 overflow-x-auto">
 				<Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onClose} />
-				<button
-					type="button"
-					onClick={() => {
-						setActiveTab("roadmap");
-						setSelectedItemId(null);
-					}}
-					className={`shrink-0 px-2 py-1 text-xs font-medium rounded ${effectiveTab === "roadmap" ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary"}`}
-				>
-					Roadmap
-				</button>
-				<select
-					value={selectedItemId ?? ""}
-					onChange={(e) => {
-						const id = e.target.value;
-						if (id) {
-							setSelectedItemId(id);
-							if (activeTab === "roadmap") setActiveTab("requirements");
-						} else {
-							setSelectedItemId(null);
-							setActiveTab("roadmap");
-						}
-					}}
-					className="h-7 shrink-0 rounded border border-border bg-surface-2 px-2 text-xs text-text-primary outline-none max-w-[180px] truncate"
-				>
-					<option value="">Select spec…</option>
-					<option value="__overall__">Overall (project-level)</option>
-					{parsedItems
-						.filter((item) => item.id.startsWith("roadmap_"))
-						.map((item) => (
-							<option key={item.id} value={item.id}>
-								{item.title}
-							</option>
-						))}
-				</select>
-				{selectedItemId ? (
-					<>
-						{(["requirements", "design", "tasks"] as const).map((tab) => (
-							<button
-								key={tab}
-								type="button"
-								onClick={() => setActiveTab(tab)}
-								className={`shrink-0 px-2 py-1 text-xs font-medium rounded capitalize ${effectiveTab === tab ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary"}`}
-							>
-								{tab}
-							</button>
-						))}
-					</>
-				) : null}
+				{(["roadmap", "requirements", "design", "tasks"] as const).map((tab) => (
+					<button
+						key={tab}
+						type="button"
+						onClick={() => setActiveTab(tab)}
+						className={`shrink-0 px-2 py-1 text-xs font-medium rounded capitalize ${activeTab === tab ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary"}`}
+					>
+						{tab}
+					</button>
+				))}
 				<div className="flex-1" />
 				{onRequestUpdate ? (
 					<Button
 						size="sm"
 						onClick={() => {
-							onRequestUpdate(
-								`Before generating tasks, do the following:
-
-1. Run \`kanban task list\` to see all existing tasks and their statuses. Do NOT create tasks that already exist or duplicate existing work.
-
-2. Read .kanban/ROADMAP.md to understand the roadmap items and their requirements.
-
-3. For each roadmap item with status "Planned" or "In Progress" that needs more tasks:
-   - Analyze the current project state (check what code/files already exist) to understand what's already done.
-   - Create only the tasks that are still needed.
-   - Make each task small enough for one agent session.
-   - Use: kanban task create --prompt "..." --title "..."
-
-4. After creating tasks, wire dependencies so they execute in the right order:
-   - Use: kanban task link --task-id <waiting-task> --linked-task-id <prerequisite-task>
-   - The waiting task stays in backlog until the prerequisite moves to done.
-   - Tasks with no dependencies can run in parallel.
-
-5. Update the ### Tasks section in .kanban/ROADMAP.md with the created task IDs.
-
-Key rules:
-- Skip roadmap items that already have all their tasks created.
-- Never create duplicate tasks.
-- Order matters: foundational work (data models, configs) before features that depend on them.`,
-							);
+							const specSlug = selectedItem?.title
+								? selectedItem.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+								: "overall";
+							let prompt: string;
+							if (activeTab === "requirements") {
+								prompt = `Read .kanban/ROADMAP.md and write/update requirements for ${selectedItem?.title ?? "the project"} at .kanban/specs/${specSlug}/requirements.md using EARS notation.`;
+							} else if (activeTab === "design") {
+								prompt = `Read .kanban/ROADMAP.md and the requirements, then write/update the technical design for ${selectedItem?.title ?? "the project"} at .kanban/specs/${specSlug}/design.md.`;
+							} else if (activeTab === "tasks") {
+								prompt = `Before generating tasks:\n1. Run \`kanban task list\` to see existing tasks. Do NOT create duplicates.\n2. Read .kanban/ROADMAP.md and the spec at .kanban/specs/${specSlug}/.\n3. Create only tasks that are still needed. Use: kanban task create --prompt "..." --title "..."\n4. Wire dependencies: kanban task link --task-id <waiting> --linked-task-id <prerequisite>\n5. Update .kanban/specs/${specSlug}/tasks.md with the task list.`;
+							} else {
+								prompt =
+									"Read .kanban/ROADMAP.md and the human's latest comments. Update the roadmap based on the comments: revise items, adjust statuses, add new items, or answer questions. Preserve the table structure and all existing columns.";
+							}
+							onRequestUpdate(prompt);
 						}}
 					>
-						⚡ Generate tasks
+						⚡ Generate
 					</Button>
+				) : null}
+				{specItems.length > 0 ? (
+					<select
+						value={selectedItemId ?? "__overall__"}
+						onChange={(e) => {
+							const id = e.target.value;
+							setSelectedItemId(id || "__overall__");
+							if (activeTab === "roadmap") setActiveTab("requirements");
+						}}
+						className="h-7 shrink-0 rounded border border-border bg-surface-2 px-2 text-xs text-text-primary outline-none max-w-[150px] truncate"
+					>
+						<option value="__overall__">Overall</option>
+						{specItems.map((item) => (
+							<option key={item.id} value={item.id}>
+								{item.title}
+							</option>
+						))}
+					</select>
 				) : null}
 			</div>
 			{/* Body */}

@@ -761,108 +761,93 @@ export function RoadmapView({
 				</div>
 			)}
 
-			{/* Comment popup — positioned above the highlighted text */}
-			{activeId &&
+			{/* Unified comment card */}
+			{(activeId || pendingText) &&
 				(() => {
-					const ann = annotations.find((a) => a.id === activeId);
-					if (!ann) return null;
-					const mark = markdownRef.current?.querySelector(`mark[data-ann-id="${activeId}"]`);
+					const ann = activeId ? annotations.find((a) => a.id === activeId) : null;
+					const anchorText = pendingText || ann?.selectedText || "";
+					const mark = activeId ? markdownRef.current?.querySelector(`mark[data-ann-id="${activeId}"]`) : null;
 					const rect = mark?.getBoundingClientRect();
-					const top = rect ? rect.top - 8 : 120;
-					const left = rect ? rect.left : 100;
+					const top = rect ? rect.top - 8 : 150;
+					const left = rect ? Math.min(rect.left, window.innerWidth - 320) : 100;
+					// Find all comments for this anchor text
+					const relatedComments = annotations.filter((a) => a.selectedText === anchorText);
 					return (
 						<div
-							className="fixed z-50 w-72 rounded-lg border border-border bg-surface-1 shadow-xl p-3"
+							className="fixed z-50 w-80 rounded-lg border border-border bg-surface-1 shadow-xl"
 							style={{ left, top, transform: "translateY(-100%)" }}
 						>
-							<p className="text-[11px] text-text-tertiary m-0 mb-1 truncate">
-								&ldquo;{ann.selectedText.slice(0, 50)}&rdquo;
-							</p>
-							<p className="m-0 text-xs text-text-primary whitespace-pre-wrap">{ann.comment}</p>
-							<div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
-								<span className="text-[10px] text-text-tertiary">
-									{new Date(ann.createdAt).toLocaleDateString()}
-								</span>
-								<div className="flex gap-1.5">
+							{/* Header */}
+							<div className="px-3 pt-3 pb-1">
+								<p className="text-[11px] text-text-tertiary m-0 truncate">
+									&ldquo;{anchorText.slice(0, 60)}
+									{anchorText.length > 60 ? "…" : ""}&rdquo;
+								</p>
+							</div>
+							{/* Previous comments */}
+							{relatedComments.length > 0 && (
+								<div className="px-3 py-1 space-y-1.5 max-h-[150px] overflow-y-auto">
+									{relatedComments.map((c) => (
+										<div key={c.id} className="flex items-start gap-1.5 group">
+											<span
+												className="shrink-0 w-1.5 h-1.5 mt-1 rounded-full"
+												style={{ background: c.color }}
+											/>
+											<p className="m-0 flex-1 text-xs text-text-primary">{c.comment}</p>
+											<button
+												type="button"
+												onClick={() => deleteAnnotation(c.id)}
+												className="shrink-0 opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-red"
+											>
+												<X size={10} />
+											</button>
+										</div>
+									))}
+								</div>
+							)}
+							{/* Input */}
+							<div className="px-3 pb-3 pt-2 border-t border-border mt-1">
+								<textarea
+									rows={2}
+									value={commentDraft}
+									onChange={(e) => setCommentDraft(e.target.value)}
+									placeholder="Add a comment…"
+									className="w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus resize-none"
+									onKeyDown={(e) => {
+										if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+											e.preventDefault();
+											submitComment();
+										}
+										if (e.key === "Escape") {
+											setPendingText(null);
+											setActiveId(null);
+										}
+									}}
+								/>
+								<div className="flex items-center justify-end mt-1.5 gap-1.5">
 									<button
 										type="button"
 										onClick={() => {
-											setPendingText(ann.selectedText);
-											setCommentDraft(ann.comment);
-										}}
-										className="px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary rounded"
-									>
-										Edit
-									</button>
-									<button
-										type="button"
-										onClick={() => {
-											deleteAnnotation(ann.id);
+											setPendingText(null);
 											setActiveId(null);
 										}}
-										className="px-2 py-0.5 text-[11px] text-status-red rounded"
+										className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary rounded"
 									>
-										Delete
+										Cancel
 									</button>
 									<button
 										type="button"
-										onClick={() => setActiveId(null)}
-										className="px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary rounded"
+										onClick={submitComment}
+										disabled={!commentDraft.trim()}
+										className="px-2 py-1 text-xs font-medium text-white bg-accent rounded disabled:opacity-40"
 									>
-										Close
+										Add
 									</button>
 								</div>
 							</div>
 						</div>
 					);
 				})()}
-
-			{/* Comment input dialog (new or editing) */}
-			{pendingText && (
-				<div
-					className="fixed z-50 w-80 rounded-lg border border-accent bg-surface-1 shadow-xl p-3"
-					style={{ left: 100, top: 120 }}
-				>
-					<p className="text-[11px] text-text-tertiary m-0 mb-1 truncate">
-						On: &ldquo;{pendingText.slice(0, 60)}
-						{pendingText.length > 60 ? "…" : ""}&rdquo;
-					</p>
-					<textarea
-						rows={3}
-						value={commentDraft}
-						onChange={(e) => setCommentDraft(e.target.value)}
-						placeholder="Add your comment…"
-						className="w-full rounded-md border border-border bg-surface-2 px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border-focus resize-none"
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-								e.preventDefault();
-								submitComment();
-							}
-							if (e.key === "Escape") setPendingText(null);
-						}}
-					/>
-					<div className="flex items-center justify-between mt-2">
-						<span className="text-[10px] text-text-tertiary">⌘+Enter to send</span>
-						<div className="flex gap-1.5">
-							<button
-								type="button"
-								onClick={() => setPendingText(null)}
-								className="px-2 py-1 text-xs text-text-secondary hover:text-text-primary rounded"
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								onClick={submitComment}
-								disabled={!commentDraft.trim()}
-								className="px-2 py-1 text-xs font-medium text-white bg-accent rounded disabled:opacity-40"
-							>
-								Save
-							</button>
-						</div>
-					</div>
-				</div>
-			)}
 		</div>
 	);
 }

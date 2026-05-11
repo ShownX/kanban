@@ -414,9 +414,13 @@ export function RoadmapView({
 		(e: React.MouseEvent) => {
 			if (pendingText) return;
 			e.preventDefault();
+			// Find the nearest paragraph or heading text as context
+			const target = e.target as HTMLElement;
+			const block = target.closest("p, h1, h2, h3, h4, li, td, th, blockquote");
+			const contextText = block?.textContent?.trim().slice(0, 80) || "general";
 			const sel = window.getSelection();
-			const text = sel?.toString().trim();
-			setPopover({ x: e.clientX, y: e.clientY, text: text || "" });
+			const selectedText = sel?.toString().trim();
+			setPopover({ x: e.clientX, y: e.clientY, text: selectedText || contextText });
 		},
 		[pendingText],
 	);

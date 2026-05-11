@@ -793,32 +793,61 @@ export function RoadmapView({
 				</div>
 			)}
 
-			{/* Inline comments list */}
+			{/* Floating comments panel (right side, collapsible) */}
 			{annotations.length > 0 && effectiveTab === "roadmap" && (
-				<div className="absolute bottom-0 left-0 right-0 border-t border-border bg-surface-1 max-h-[200px] overflow-y-auto p-3">
-					<div className="flex items-center justify-between mb-2">
-						<span className="text-[11px] font-medium text-text-tertiary uppercase">
-							Comments ({annotations.length})
-						</span>
-					</div>
-					<div className="space-y-2">
-						{annotations.map((ann) => (
-							<div key={ann.id} className="flex items-start gap-2 text-xs">
-								<span className="shrink-0 w-1 h-1 mt-1.5 rounded-full" style={{ background: ann.color }} />
-								<div className="min-w-0 flex-1">
-									<span className="text-text-tertiary">&ldquo;{ann.selectedText.slice(0, 40)}&rdquo;</span>
-									<p className="m-0 mt-0.5 text-text-primary">{ann.comment}</p>
-								</div>
+				<div className="absolute top-10 right-0 bottom-0 flex">
+					<button
+						type="button"
+						onClick={() => setActiveId(activeId ? null : (annotations[0]?.id ?? null))}
+						className="self-start mt-2 -ml-6 w-6 h-6 flex items-center justify-center rounded-l border border-r-0 border-border bg-surface-1 text-text-tertiary hover:text-text-primary z-10"
+						title={activeId ? "Collapse comments" : "Show comments"}
+					>
+						<span className="text-[10px]">{annotations.length}</span>
+					</button>
+					{activeId && (
+						<div className="w-64 border-l border-border bg-surface-1 overflow-y-auto p-3">
+							<div className="flex items-center justify-between mb-2">
+								<span className="text-[11px] font-medium text-text-tertiary uppercase">Comments</span>
 								<button
 									type="button"
-									onClick={() => deleteAnnotation(ann.id)}
-									className="shrink-0 text-text-tertiary hover:text-status-red"
+									onClick={() => setActiveId(null)}
+									className="text-text-tertiary hover:text-text-primary"
 								>
-									<X size={10} />
+									<X size={12} />
 								</button>
 							</div>
-						))}
-					</div>
+							<div className="space-y-3">
+								{annotations.map((ann) => (
+									<div
+										key={ann.id}
+										onClick={() => setActiveId(ann.id)}
+										className={`rounded-md border p-2 cursor-pointer transition-colors ${ann.id === activeId ? "border-accent bg-accent/5" : "border-border hover:border-border-bright"}`}
+										style={{ borderLeftWidth: 3, borderLeftColor: ann.color }}
+									>
+										<p className="m-0 text-[11px] text-text-tertiary truncate">
+											&ldquo;{ann.selectedText.slice(0, 50)}&rdquo;
+										</p>
+										<p className="m-0 mt-1 text-xs text-text-primary">{ann.comment}</p>
+										<div className="flex items-center justify-between mt-1.5">
+											<span className="text-[10px] text-text-tertiary">
+												{new Date(ann.createdAt).toLocaleDateString()}
+											</span>
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													deleteAnnotation(ann.id);
+												}}
+												className="text-text-tertiary hover:text-status-red"
+											>
+												<X size={10} />
+											</button>
+										</div>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
 				</div>
 			)}
 		</div>

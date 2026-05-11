@@ -367,9 +367,13 @@ export function RoadmapView({
 		(id: string) => {
 			const ann = annotations.find((a) => a.id === id);
 			if (ann) {
-				setPendingText(ann.selectedText);
-				setCommentDraft(ann.comment);
 				setActiveId(id);
+				// Position popup above the mark element
+				const mark = markdownRef.current?.querySelector(`mark[data-ann-id="${id}"]`);
+				if (mark) {
+					const rect = mark.getBoundingClientRect();
+					setPopover({ x: rect.left, y: rect.top, text: ann.selectedText });
+				}
 			}
 		},
 		[annotations],
@@ -757,7 +761,63 @@ export function RoadmapView({
 				</div>
 			)}
 
-			{/* Inline comment input (Quip-style) */}
+			{/* Comment popup — positioned above the highlighted text */}
+			{activeId &&
+				(() => {
+					const ann = annotations.find((a) => a.id === activeId);
+					if (!ann) return null;
+					const mark = markdownRef.current?.querySelector(`mark[data-ann-id="${activeId}"]`);
+					const rect = mark?.getBoundingClientRect();
+					const top = rect ? rect.top - 8 : 120;
+					const left = rect ? rect.left : 100;
+					return (
+						<div
+							className="fixed z-50 w-72 rounded-lg border border-border bg-surface-1 shadow-xl p-3"
+							style={{ left, top, transform: "translateY(-100%)" }}
+						>
+							<p className="text-[11px] text-text-tertiary m-0 mb-1 truncate">
+								&ldquo;{ann.selectedText.slice(0, 50)}&rdquo;
+							</p>
+							<p className="m-0 text-xs text-text-primary whitespace-pre-wrap">{ann.comment}</p>
+							<div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
+								<span className="text-[10px] text-text-tertiary">
+									{new Date(ann.createdAt).toLocaleDateString()}
+								</span>
+								<div className="flex gap-1.5">
+									<button
+										type="button"
+										onClick={() => {
+											setPendingText(ann.selectedText);
+											setCommentDraft(ann.comment);
+										}}
+										className="px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary rounded"
+									>
+										Edit
+									</button>
+									<button
+										type="button"
+										onClick={() => {
+											deleteAnnotation(ann.id);
+											setActiveId(null);
+										}}
+										className="px-2 py-0.5 text-[11px] text-status-red rounded"
+									>
+										Delete
+									</button>
+									<button
+										type="button"
+										onClick={() => setActiveId(null)}
+										className="px-2 py-0.5 text-[11px] text-text-secondary hover:text-text-primary rounded"
+									>
+										Close
+									</button>
+								</div>
+							</div>
+						</div>
+					);
+				})()}
+
+			{/* Comment input dialog (new or editing) */}
 			{pendingText && (
 				<div
 					className="fixed z-50 w-80 rounded-lg border border-accent bg-surface-1 shadow-xl p-3"
@@ -797,72 +857,10 @@ export function RoadmapView({
 								disabled={!commentDraft.trim()}
 								className="px-2 py-1 text-xs font-medium text-white bg-accent rounded disabled:opacity-40"
 							>
-								Add
+								Save
 							</button>
 						</div>
 					</div>
-				</div>
-			)}
-
-			{/* Floating comments panel (right side, collapsible) */}
-			{annotations.length > 0 && effectiveTab === "roadmap" && (
-				<div className="absolute top-10 right-0 bottom-0 flex">
-					<button
-						type="button"
-						onClick={() => setActiveId(activeId ? null : (annotations[0]?.id ?? null))}
-						className="self-start mt-2 -ml-6 w-6 h-6 flex items-center justify-center rounded-l border border-r-0 border-border bg-surface-1 text-text-tertiary hover:text-text-primary z-10"
-						title={activeId ? "Collapse comments" : "Show comments"}
-					>
-						<span className="text-[10px]">{annotations.length}</span>
-					</button>
-					{activeId && (
-						<div className="w-64 border-l border-border bg-surface-1 overflow-y-auto p-3">
-							<div className="flex items-center justify-between mb-2">
-								<span className="text-[11px] font-medium text-text-tertiary uppercase">Comments</span>
-								<button
-									type="button"
-									onClick={() => setActiveId(null)}
-									className="text-text-tertiary hover:text-text-primary"
-								>
-									<X size={12} />
-								</button>
-							</div>
-							<div className="space-y-3">
-								{annotations.map((ann) => (
-									<div
-										key={ann.id}
-										onClick={() => {
-											setPendingText(ann.selectedText);
-											setCommentDraft(ann.comment);
-											setActiveId(ann.id);
-										}}
-										className={`rounded-md border p-2 cursor-pointer transition-colors ${ann.id === activeId ? "border-accent bg-accent/5" : "border-border hover:border-border-bright"}`}
-										style={{ borderLeftWidth: 3, borderLeftColor: ann.color }}
-									>
-										<p className="m-0 text-[11px] text-text-tertiary truncate">
-											&ldquo;{ann.selectedText.slice(0, 50)}&rdquo;
-										</p>
-										<p className="m-0 mt-1 text-xs text-text-primary">{ann.comment}</p>
-										<div className="flex items-center justify-between mt-1.5">
-											<span className="text-[10px] text-text-tertiary">
-												{new Date(ann.createdAt).toLocaleDateString()}
-											</span>
-											<button
-												type="button"
-												onClick={(e) => {
-													e.stopPropagation();
-													deleteAnnotation(ann.id);
-												}}
-												className="text-text-tertiary hover:text-status-red"
-											>
-												<X size={10} />
-											</button>
-										</div>
-									</div>
-								))}
-							</div>
-						</div>
-					)}
 				</div>
 			)}
 		</div>

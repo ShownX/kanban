@@ -173,8 +173,8 @@ export function RoadmapView({
 }: RoadmapViewProps): ReactElement {
 	const [markdown, setMarkdown] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
-	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-	const [activeTab, setActiveTab] = useState<"roadmap" | "requirements" | "design" | "tasks">("roadmap");
+	const [selectedItemId, setSelectedItemId] = useState<string | null>("__overall__");
+	const [activeTab, setActiveTab] = useState<"roadmap" | "requirements" | "design" | "tasks">("requirements");
 	const [annotations, setAnnotations] = useState<Annotation[]>(() => (board.roadmapAnnotations ?? []) as Annotation[]);
 	const [pendingText, setPendingText] = useState<string | null>(null);
 	const [commentDraft, setCommentDraft] = useState("");
@@ -464,6 +464,7 @@ export function RoadmapView({
 
 	const sortedAnnotations = useMemo(() => [...annotations].sort((a, b) => a.createdAt - b.createdAt), [annotations]);
 
+	const specItems = parsedItems.filter((item) => item.id.startsWith("roadmap_"));
 	const selectedItem = selectedItemId
 		? selectedItemId === "__overall__"
 			? ({
@@ -472,18 +473,18 @@ export function RoadmapView({
 					description: "",
 					status: "planned" as const,
 					requirements:
-						parsedItems
+						specItems
 							.map((item) => item.requirements)
 							.filter(Boolean)
 							.join("\n\n") || undefined,
 					design:
-						parsedItems
+						specItems
 							.map((item) => item.design)
 							.filter(Boolean)
 							.join("\n\n") || undefined,
-					openQuestions: parsedItems.flatMap((item) => item.openQuestions),
-					tasks: parsedItems.flatMap((item) => item.tasks),
-					linkedTaskIds: parsedItems.flatMap((item) => item.linkedTaskIds),
+					openQuestions: specItems.flatMap((item) => item.openQuestions),
+					tasks: specItems.flatMap((item) => item.tasks),
+					linkedTaskIds: specItems.flatMap((item) => item.linkedTaskIds),
 					comments: [],
 					createdAt: 0,
 					updatedAt: 0,
@@ -537,11 +538,13 @@ export function RoadmapView({
 				>
 					<option value="">Select spec…</option>
 					<option value="__overall__">Overall (project-level)</option>
-					{parsedItems.map((item) => (
-						<option key={item.id} value={item.id}>
-							{item.title}
-						</option>
-					))}
+					{parsedItems
+						.filter((item) => item.id.startsWith("roadmap_"))
+						.map((item) => (
+							<option key={item.id} value={item.id}>
+								{item.title}
+							</option>
+						))}
 				</select>
 				{selectedItemId ? (
 					<>

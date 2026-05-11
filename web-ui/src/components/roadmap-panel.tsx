@@ -410,6 +410,18 @@ export function RoadmapView({
 		setPopover({ x: rect.left + rect.width / 2 - 50, y: rect.top, text });
 	}, [pendingText]);
 
+	const handleContextMenu = useCallback(
+		(e: React.MouseEvent) => {
+			if (pendingText) return;
+			const sel = window.getSelection();
+			const text = sel?.toString().trim();
+			if (!text || text.length < 2) return;
+			e.preventDefault();
+			setPopover({ x: e.clientX, y: e.clientY, text });
+		},
+		[pendingText],
+	);
+
 	// Dismiss popover on click outside
 	useEffect(() => {
 		const handler = (e: MouseEvent) => {
@@ -578,7 +590,12 @@ export function RoadmapView({
 								</button>
 							</div>
 
-							<div ref={markdownRef} className="relative" onMouseUp={handleMouseUp}>
+							<div
+								ref={markdownRef}
+								className="relative"
+								onMouseUp={handleMouseUp}
+								onContextMenu={handleContextMenu}
+							>
 								<ReactMarkdown
 									remarkPlugins={[remarkGfm]}
 									components={{

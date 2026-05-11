@@ -413,11 +413,10 @@ export function RoadmapView({
 	const handleContextMenu = useCallback(
 		(e: React.MouseEvent) => {
 			if (pendingText) return;
+			e.preventDefault();
 			const sel = window.getSelection();
 			const text = sel?.toString().trim();
-			if (!text || text.length < 2) return;
-			e.preventDefault();
-			setPopover({ x: e.clientX, y: e.clientY, text });
+			setPopover({ x: e.clientX, y: e.clientY, text: text || "" });
 		},
 		[pendingText],
 	);
@@ -735,7 +734,9 @@ export function RoadmapView({
 						className="flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-text-primary hover:bg-surface-3"
 						onMouseDown={(e) => {
 							e.preventDefault();
-							startComment();
+							setPendingText(popover.text || "(general comment)");
+							setCommentDraft("");
+							setPopover(null);
 						}}
 					>
 						💬 Comment

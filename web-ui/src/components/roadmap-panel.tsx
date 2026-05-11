@@ -174,6 +174,7 @@ export function RoadmapView({
 	const [markdown, setMarkdown] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+	const [activeTab, setActiveTab] = useState<"roadmap" | "requirements" | "design" | "tasks">("roadmap");
 	const [annotations, setAnnotations] = useState<Annotation[]>(() => (board.roadmapAnnotations ?? []) as Annotation[]);
 	const [pendingText, setPendingText] = useState<string | null>(null);
 	const [commentDraft, setCommentDraft] = useState("");
@@ -463,11 +464,33 @@ export function RoadmapView({
 
 	const sortedAnnotations = useMemo(() => [...annotations].sort((a, b) => a.createdAt - b.createdAt), [annotations]);
 
-	const selectedItem = selectedItemId ? (parsedItems.find((item) => item.id === selectedItemId) ?? null) : null;
-
-	type ViewTab = "roadmap" | "requirements" | "design" | "tasks";
-	const [activeTab, setActiveTab] = useState<ViewTab>("roadmap");
-	const effectiveTab: ViewTab = selectedItemId && selectedItem ? activeTab : "roadmap";
+	const selectedItem = selectedItemId
+		? selectedItemId === "__overall__"
+			? ({
+					id: "__overall__",
+					title: "Overall",
+					description: "",
+					status: "planned" as const,
+					requirements:
+						parsedItems
+							.map((item) => item.requirements)
+							.filter(Boolean)
+							.join("\n\n") || undefined,
+					design:
+						parsedItems
+							.map((item) => item.design)
+							.filter(Boolean)
+							.join("\n\n") || undefined,
+					openQuestions: parsedItems.flatMap((item) => item.openQuestions),
+					tasks: parsedItems.flatMap((item) => item.tasks),
+					linkedTaskIds: parsedItems.flatMap((item) => item.linkedTaskIds),
+					comments: [],
+					createdAt: 0,
+					updatedAt: 0,
+				} satisfies RoadmapItem)
+			: (parsedItems.find((item) => item.id === selectedItemId) ?? null)
+		: null;
+	const effectiveTab = selectedItemId && selectedItem ? activeTab : "roadmap";
 
 	return (
 		<div className="flex flex-1 flex-col min-h-0 min-w-0">
@@ -510,9 +533,10 @@ export function RoadmapView({
 							setActiveTab("roadmap");
 						}
 					}}
-					className="h-7 shrink-0 rounded border border-border bg-surface-2 px-2 text-xs text-text-primary outline-none max-w-[160px] truncate"
+					className="h-7 shrink-0 rounded border border-border bg-surface-2 px-2 text-xs text-text-primary outline-none max-w-[180px] truncate"
 				>
 					<option value="">Select spec…</option>
+					<option value="__overall__">Overall (project-level)</option>
 					{parsedItems.map((item) => (
 						<option key={item.id} value={item.id}>
 							{item.title}

@@ -670,6 +670,14 @@ Key rules:
 								{highlightedMarkdown}
 							</ReactMarkdown>
 						</div>
+						{!markdown.trim() ? (
+							<div className="flex flex-col items-center justify-center py-20 text-center">
+								<p className="text-text-secondary text-sm max-w-sm">
+									Your roadmap is empty. Use the <strong>Kanban agent</strong> in the left sidebar to generate
+									a roadmap from your project description.
+								</p>
+							</div>
+						) : null}
 					</div>
 				</div>
 

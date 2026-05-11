@@ -401,7 +401,6 @@ export function RoadmapView({
 		const sel = window.getSelection();
 		const text = sel?.toString().trim();
 		if (!text || text.length < 2) {
-			setPopover(null);
 			return;
 		}
 		const range = sel?.getRangeAt(0);
@@ -425,14 +424,13 @@ export function RoadmapView({
 		[pendingText],
 	);
 
-	// Dismiss popover on click outside
+	// Dismiss popover on Escape key
 	useEffect(() => {
-		const handler = (e: MouseEvent) => {
-			if ((e.target as HTMLElement).closest("[data-popover]")) return;
-			setPopover(null);
+		const handler = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setPopover(null);
 		};
-		document.addEventListener("mousedown", handler);
-		return () => document.removeEventListener("mousedown", handler);
+		document.addEventListener("keydown", handler);
+		return () => document.removeEventListener("keydown", handler);
 	}, []);
 
 	const startComment = useCallback(() => {

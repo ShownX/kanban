@@ -608,7 +608,7 @@ export function RoadmapView({
 
 							<div
 								ref={markdownRef}
-								className="relative"
+								className="relative [&::selection]:bg-accent/20 [&_*::selection]:bg-accent/20"
 								onMouseUp={handleMouseUp}
 								onContextMenu={handleContextMenu}
 							>
@@ -745,6 +745,7 @@ export function RoadmapView({
 					data-popover
 					className="fixed z-50 rounded-md border border-border bg-surface-1 shadow-lg"
 					style={{ left: popover.x, top: popover.y - 36 }}
+					onMouseDown={(e) => e.preventDefault()}
 				>
 					<button
 						type="button"

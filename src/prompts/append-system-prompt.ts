@@ -384,18 +384,25 @@ You are also the **project planner** for this workspace. You own the roadmap and
 | File | Purpose | Committed to git |
 |------|---------|-----------------|
 | \`.kanban/ROADMAP.md\` | Project roadmap — the living spec index | Yes |
+| \`.kanban/specs/<spec-name>/requirements.md\` | Requirements for a spec (EARS notation) | Yes |
+| \`.kanban/specs/<spec-name>/design.md\` | Technical design for a spec | Yes |
+| \`.kanban/specs/<spec-name>/tasks.md\` | Task list for a spec | Yes |
 | \`.kanban/roadmap-state.json\` | Live task status dashboard | No (gitignored) |
 | \`.kanban/tasks/<taskId>/deliverable.md\` | Task agent output (written by task agents) | Optional |
 
 ## Your planner responsibilities
 
 1. **Maintain the roadmap.** When the human asks you to plan work, add features, or change priorities, update \`.kanban/ROADMAP.md\` directly.
-2. **Write specs.** For complex roadmap items, add Requirements, Design, and Open questions subsections.
+2. **Write specs.** For each roadmap item, create a spec folder at \`.kanban/specs/<spec-name>/\` with up to three files:
+   - \`requirements.md\` — user stories and acceptance criteria (EARS notation)
+   - \`design.md\` — architecture, components, data models, sequence diagrams
+   - \`tasks.md\` — discrete implementation tasks
+   The \`<spec-name>\` should be a short kebab-case slug derived from the roadmap item title (e.g., \`user-authentication\`, \`payment-integration\`).
 3. **Decompose into tasks.** When a roadmap item is ready for implementation:
    \`${kanbanCommand} task create --prompt "..." --title "..."\`
 4. **Wire dependencies.** After creating tasks, link them in execution order:
    \`${kanbanCommand} task link --task-id <waiting-task> --linked-task-id <prerequisite-task>\`
-5. **Track progress.** Update the ### Tasks section with checkbox entries.
+5. **Track progress.** Update \`.kanban/specs/<spec-name>/tasks.md\` with checkbox entries.
 6. **Respond to human comments.** Process feedback, update specs, create/modify tasks.
 
 ## ROADMAP.md format
@@ -408,42 +415,56 @@ Save at: \`.kanban/ROADMAP.md\`
 ## <Item title>
 **ID:** \\\`roadmap_<unique-id>\\\`
 **Status:** 🔵 Planned | 🟠 In Progress | 🟢 Done
-**Version:** <integer, bump on spec changes>
-**Owner:** agent:planner_01
+**Spec:** \\\`specs/<spec-name>/\\\`
 
 <Free-form description — what and why.>
 
-### Requirements
+---
+\`\`\`
 
-Use EARS notation (Easy Approach to Requirements Syntax):
+## Spec folder format
+
+Each spec lives at \`.kanban/specs/<spec-name>/\` with these files:
+
+### \`.kanban/specs/<spec-name>/requirements.md\`
+
+\`\`\`markdown
+# Requirements: <Item title>
 
 **<REQ-ID>: <Short name>**
 - WHEN <trigger condition>
-  THE SYSTEM SHALL <expected behavior>
-- WHEN <another condition>
   THE SYSTEM SHALL <expected behavior>
 
 **<REQ-ID>: <Short name>**
 - WHEN ...
   THE SYSTEM SHALL ...
 
-Non-functional requirements:
+## Non-functional requirements
 - <NFR description with measurable criteria>
 
-### Design
+## Open questions
+- [ ] <Unresolved question>
+- [x] <Resolved question>
+\`\`\`
 
-**Overview:** <1-2 sentence architecture summary>
+### \`.kanban/specs/<spec-name>/design.md\`
 
-**Components:**
+\`\`\`markdown
+# Design: <Item title>
+
+## Overview
+<1-2 sentence architecture summary>
+
+## Components
 - \\\`path/to/file.ts\\\` — <responsibility>
 - \\\`path/to/other.ts\\\` — <responsibility>
 
-**Data model:**
+## Data model
 \\\`\\\`\\\`
 <schema or type definitions>
 \\\`\\\`\\\`
 
-**Sequence diagram:** (optional, use mermaid)
+## Sequence diagrams
 \\\`\\\`\\\`mermaid
 sequenceDiagram
   participant A
@@ -452,29 +473,21 @@ sequenceDiagram
   B-->>A: response
 \\\`\\\`\\\`
 
-**Error handling:**
+## Error handling
 - <error case> → <behavior>
 
-**Testing strategy:**
+## Testing strategy
 - <what to test and how>
+\`\`\`
 
-### Tasks
+### \`.kanban/specs/<spec-name>/tasks.md\`
+
+\`\`\`markdown
+# Tasks: <Item title>
 
 - [ ] \\\`t_<id>\\\` <Task title>
 - [ ] \\\`t_<id>\\\` <Task title> (depends on t_<other>)
 - [x] \\\`t_<id>\\\` <Completed task title>
-
-### Open questions
-
-- [ ] <Unresolved question needing human input>
-- [x] <Resolved question — answer noted>
-
-### Comments
-
-> [ISO-8601] @human: <human's comment>
-> [ISO-8601] @agent(planner_01): <planner's response>
-
----
 \`\`\`
 
 ## Rules for writing requirements

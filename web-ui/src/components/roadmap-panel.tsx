@@ -465,9 +465,9 @@ export function RoadmapView({
 
 	const selectedItem = selectedItemId ? (parsedItems.find((item) => item.id === selectedItemId) ?? null) : null;
 
-	if (selectedItem) {
-		return <RoadmapSpecView item={selectedItem} onBack={() => setSelectedItemId(null)} />;
-	}
+	type ViewTab = "roadmap" | "requirements" | "design" | "tasks";
+	const [activeTab, setActiveTab] = useState<ViewTab>("roadmap");
+	const effectiveTab: ViewTab = selectedItemId && selectedItem ? activeTab : "roadmap";
 
 	return (
 		<div className="flex flex-1 flex-col min-h-0 min-w-0">
@@ -486,37 +486,54 @@ export function RoadmapView({
 				}}
 			/>
 			{/* Header */}
-			<div className="flex h-10 shrink-0 items-center gap-3 border-b border-border bg-surface-1 px-3">
+			<div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border bg-surface-1 px-3 overflow-x-auto">
 				<Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onClose} />
-				<span className="text-sm font-medium text-text-primary">Roadmap</span>
-				<div className="flex-1" />
-				{isSaving && (
-					<span className="text-[11px] text-text-tertiary flex items-center gap-1">
-						<Save size={10} /> Saving…
-					</span>
-				)}
-				<Button
-					size="sm"
-					variant="default"
-					icon={<FileUp size={14} />}
-					onClick={() => fileInputRef.current?.click()}
-				>
-					Import
-				</Button>
-				<input
-					ref={fileInputRef}
-					type="file"
-					accept=".md,.txt,.markdown"
-					className="hidden"
-					onChange={(e) => {
-						const f = e.target.files?.[0];
-						if (f) void handleImportFile(f);
-						e.target.value = "";
+				<button
+					type="button"
+					onClick={() => {
+						setActiveTab("roadmap");
+						setSelectedItemId(null);
 					}}
-				/>
-				<Button size="sm" variant="primary" disabled={annotations.length === 0} onClick={handleRequestUpdate}>
-					Update
-				</Button>
+					className={`shrink-0 px-2 py-1 text-xs font-medium rounded ${effectiveTab === "roadmap" ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary"}`}
+				>
+					Roadmap
+				</button>
+				<select
+					value={selectedItemId ?? ""}
+					onChange={(e) => {
+						const id = e.target.value;
+						if (id) {
+							setSelectedItemId(id);
+							if (activeTab === "roadmap") setActiveTab("requirements");
+						} else {
+							setSelectedItemId(null);
+							setActiveTab("roadmap");
+						}
+					}}
+					className="h-7 shrink-0 rounded border border-border bg-surface-2 px-2 text-xs text-text-primary outline-none max-w-[160px] truncate"
+				>
+					<option value="">Select spec…</option>
+					{parsedItems.map((item) => (
+						<option key={item.id} value={item.id}>
+							{item.title}
+						</option>
+					))}
+				</select>
+				{selectedItemId ? (
+					<>
+						{(["requirements", "design", "tasks"] as const).map((tab) => (
+							<button
+								key={tab}
+								type="button"
+								onClick={() => setActiveTab(tab)}
+								className={`shrink-0 px-2 py-1 text-xs font-medium rounded capitalize ${effectiveTab === tab ? "bg-surface-3 text-text-primary" : "text-text-secondary hover:text-text-primary"}`}
+							>
+								{tab}
+							</button>
+						))}
+					</>
+				) : null}
+				<div className="flex-1" />
 				{onRequestUpdate ? (
 					<Button
 						size="sm"
@@ -552,238 +569,148 @@ Key rules:
 					</Button>
 				) : null}
 			</div>
-
 			{/* Body */}
 			<div className="flex flex-1 min-h-0" data-roadmap-body>
-				{/* Document */}
-				<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0" style={{ padding: "24px 0" }}>
-					<div className="mx-auto px-8" style={{ maxWidth: 960 }}>
-						<div className="mb-6 border-b border-border pb-3 flex items-baseline gap-2">
-							<h1 className="text-xl font-bold text-text-primary">Roadmap</h1>
-							<button
-								type="button"
-								className="inline-flex cursor-pointer items-center gap-1 text-xs text-text-tertiary hover:text-accent"
-								onClick={() => void openFileOnHost(workspaceId, ".kanban/ROADMAP.md")}
-							>
-								(.kanban/ROADMAP.md) <ExternalLink size={10} />
-							</button>
-						</div>
+				{effectiveTab === "roadmap" ? (
+					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0" style={{ padding: "24px 0" }}>
+						<div className="mx-auto px-8" style={{ maxWidth: 960 }}>
+							<div className="mb-6 border-b border-border pb-3 flex items-baseline gap-2">
+								<h1 className="text-xl font-bold text-text-primary">Roadmap</h1>
+								<button
+									type="button"
+									className="inline-flex cursor-pointer items-center gap-1 text-xs text-text-tertiary hover:text-accent"
+									onClick={() => void openFileOnHost(workspaceId, ".kanban/ROADMAP.md")}
+								>
+									(.kanban/ROADMAP.md) <ExternalLink size={10} />
+								</button>
+							</div>
 
-						<div ref={markdownRef} className="relative" onMouseUp={handleMouseUp}>
-							<ReactMarkdown
-								remarkPlugins={[remarkGfm]}
-								components={{
-									h1: withHighlights(
-										"h1",
-										"text-2xl font-bold text-text-primary mt-6 mb-3 first:mt-0",
-										activeId,
-										handleClickMark,
-									) as never,
-									h2: (({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => {
-										const text = typeof children === "string" ? children : String(children ?? "");
-										const matchedItem = parsedItems.find((item) => item.title === text);
-										return (
-											<h2
-												{...props}
-												className="text-lg font-semibold text-text-primary mt-5 mb-2 border-b border-border pb-1 cursor-pointer hover:text-accent"
-												onClick={() => {
-													if (matchedItem) setSelectedItemId(matchedItem.id);
-												}}
-											>
-												{children}
-											</h2>
-										);
-									}) as never,
-									h3: withHighlights(
-										"h3",
-										"text-base font-semibold text-text-primary mt-4 mb-1.5",
-										activeId,
-										handleClickMark,
-									) as never,
-									p: withHighlights(
-										"p",
-										"text-sm leading-relaxed text-text-secondary mb-3",
-										activeId,
-										handleClickMark,
-									) as never,
-									li: withHighlights("li", "leading-relaxed", activeId, handleClickMark) as never,
-									ul: ({ children }) => (
-										<ul className="list-disc pl-6 mb-3 text-sm text-text-secondary space-y-1">{children}</ul>
-									),
-									ol: ({ children }) => (
-										<ol className="list-decimal pl-6 mb-3 text-sm text-text-secondary space-y-1">
-											{children}
-										</ol>
-									),
-									strong: withHighlights(
-										"strong",
-										"font-semibold text-text-primary",
-										activeId,
-										handleClickMark,
-									) as never,
-									em: ({ children }) => <em className="italic">{children}</em>,
-									code: ({ children, className }) => {
-										if (className?.startsWith("language-"))
+							<div ref={markdownRef} className="relative" onMouseUp={handleMouseUp}>
+								<ReactMarkdown
+									remarkPlugins={[remarkGfm]}
+									components={{
+										h1: withHighlights(
+											"h1",
+											"text-2xl font-bold text-text-primary mt-6 mb-3 first:mt-0",
+											activeId,
+											handleClickMark,
+										) as never,
+										h2: (({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => {
+											const text = typeof children === "string" ? children : String(children ?? "");
+											const matchedItem = parsedItems.find((item) => item.title === text);
 											return (
-												<code className="block rounded-md bg-surface-2 px-4 py-3 text-xs font-mono text-text-primary overflow-x-auto mb-3">
+												<h2
+													{...props}
+													className="text-lg font-semibold text-text-primary mt-5 mb-2 border-b border-border pb-1 cursor-pointer hover:text-accent"
+													onClick={() => {
+														if (matchedItem) setSelectedItemId(matchedItem.id);
+													}}
+												>
+													{children}
+												</h2>
+											);
+										}) as never,
+										h3: withHighlights(
+											"h3",
+											"text-base font-semibold text-text-primary mt-4 mb-1.5",
+											activeId,
+											handleClickMark,
+										) as never,
+										p: withHighlights(
+											"p",
+											"text-sm leading-relaxed text-text-secondary mb-3",
+											activeId,
+											handleClickMark,
+										) as never,
+										li: withHighlights("li", "leading-relaxed", activeId, handleClickMark) as never,
+										ul: ({ children }) => (
+											<ul className="list-disc pl-6 mb-3 text-sm text-text-secondary space-y-1">
+												{children}
+											</ul>
+										),
+										ol: ({ children }) => (
+											<ol className="list-decimal pl-6 mb-3 text-sm text-text-secondary space-y-1">
+												{children}
+											</ol>
+										),
+										strong: withHighlights(
+											"strong",
+											"font-semibold text-text-primary",
+											activeId,
+											handleClickMark,
+										) as never,
+										em: ({ children }) => <em className="italic">{children}</em>,
+										code: ({ children, className }) => {
+											if (className?.startsWith("language-"))
+												return (
+													<code className="block rounded-md bg-surface-2 px-4 py-3 text-xs font-mono text-text-primary overflow-x-auto mb-3">
+														{children}
+													</code>
+												);
+											return (
+												<code className="rounded-sm bg-surface-2 px-1 py-0.5 text-xs font-mono text-text-primary">
 													{children}
 												</code>
 											);
-										return (
-											<code className="rounded-sm bg-surface-2 px-1 py-0.5 text-xs font-mono text-text-primary">
+										},
+										blockquote: ({ children }) => (
+											<blockquote className="border-l-2 border-accent pl-3 mb-3 text-sm italic text-text-tertiary">
 												{children}
-											</code>
-										);
-									},
-									blockquote: ({ children }) => (
-										<blockquote className="border-l-2 border-accent pl-3 mb-3 text-sm italic text-text-tertiary">
-											{children}
-										</blockquote>
-									),
-									hr: () => <hr className="border-border my-4" />,
-									a: ({ href, children }) => (
-										<a
-											href={href}
-											className="text-accent hover:text-accent-hover underline"
-											target="_blank"
-											rel="noreferrer"
-										>
-											{children}
-										</a>
-									),
-									table: ({ children }) => (
-										<table className="w-full border-collapse mb-3 text-sm">{children}</table>
-									),
-									th: ({ children }) => (
-										<th className="border border-border bg-surface-2 px-3 py-1.5 text-left text-xs font-medium text-text-primary">
-											{children}
-										</th>
-									),
-									td: withHighlights(
-										"td",
-										"border border-border px-3 py-1.5 text-text-secondary",
-										activeId,
-										handleClickMark,
-									) as never,
-								}}
-							>
-								{highlightedMarkdown}
-							</ReactMarkdown>
-						</div>
-						{!markdown.trim() ? (
-							<div className="flex flex-col items-center justify-center py-20 text-center">
-								<p className="text-text-secondary text-sm max-w-sm">
-									Your roadmap is empty. Use the <strong>Kanban agent</strong> in the left sidebar to generate
-									a roadmap from your project description.
-								</p>
-							</div>
-						) : null}
-					</div>
-				</div>
-
-				{/* Resize handle */}
-				<ResizeHandle orientation="vertical" ariaLabel="Resize comments panel" onMouseDown={handleResize} />
-
-				{/* Comments sidebar */}
-				<div
-					className="shrink-0 bg-surface-1 overflow-y-auto flex flex-col"
-					style={{ width: commentsPanelWidth }}
-					data-comment-sidebar
-				>
-					<div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-						<span className="text-xs font-medium text-text-tertiary uppercase">Review Comments</span>
-						<span className="text-[11px] text-text-tertiary">({annotations.length})</span>
-					</div>
-
-					{/* Pending comment */}
-					{pendingText && (
-						<div className="mx-2 mt-2 flex flex-col gap-1.5 rounded-md border border-accent bg-accent/5 p-2">
-							<textarea
-								className="min-h-[40px] rounded-md border border-border bg-surface-2 px-2 py-1 text-xs text-text-primary outline-none focus:border-border-focus resize-none"
-								value={commentDraft}
-								onChange={(e) => setCommentDraft(e.target.value)}
-								placeholder="Add your comment…"
-								onKeyDown={(e) => {
-									if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-										e.preventDefault();
-										submitComment();
-									}
-									if (e.key === "Escape") setPendingText(null);
-								}}
-							/>
-							<div className="flex items-center justify-between">
-								<span className="text-[10px] text-text-tertiary">⌘+Enter to send</span>
-								<div className="flex gap-1">
-									<Button size="sm" variant="primary" onClick={submitComment}>
-										Add
-									</Button>
-									<Button size="sm" variant="default" onClick={() => setPendingText(null)}>
-										Cancel
-									</Button>
-								</div>
-							</div>
-						</div>
-					)}
-
-					{/* Comment cards positioned by Y */}
-					<div className="relative flex-1">
-						{sortedAnnotations.map((ann) => {
-							return (
-								<div
-									key={ann.id}
-									className={cn(
-										"group mx-2 my-1.5 rounded-md border px-2.5 py-2 transition-colors",
-										ann.resolved
-											? "border-border bg-surface-2 opacity-50"
-											: activeId === ann.id
-												? "border-accent bg-accent/5"
-												: "border-border bg-surface-2 hover:border-border-bright",
-									)}
-									style={{
-										borderLeftWidth: 3,
-										borderLeftColor: ann.resolved ? "var(--color-border)" : ann.color,
-									}}
-									onClick={() => {
-										if (ann.resolved) return;
-										setActiveId(ann.id === activeId ? null : ann.id);
-										const mark = markdownRef.current?.querySelector(`mark[data-ann-id="${ann.id}"]`);
-										mark?.scrollIntoView({ behavior: "smooth", block: "center" });
+											</blockquote>
+										),
+										hr: () => <hr className="border-border my-4" />,
+										a: ({ href, children }) => (
+											<a
+												href={href}
+												className="text-accent hover:text-accent-hover underline"
+												target="_blank"
+												rel="noreferrer"
+											>
+												{children}
+											</a>
+										),
+										table: ({ children }) => (
+											<table className="w-full border-collapse mb-3 text-sm">{children}</table>
+										),
+										th: ({ children }) => (
+											<th className="border border-border bg-surface-2 px-3 py-1.5 text-left text-xs font-medium text-text-primary">
+												{children}
+											</th>
+										),
+										td: withHighlights(
+											"td",
+											"border border-border px-3 py-1.5 text-text-secondary",
+											activeId,
+											handleClickMark,
+										) as never,
 									}}
 								>
-									<div className="flex items-start justify-between">
-										<span className="text-[10px] text-text-tertiary">
-											{ann.resolved && <span className="text-status-green mr-1">✓ Resolved</span>}
-											{new Date(ann.createdAt).toLocaleString()}
-										</span>
-										<button
-											type="button"
-											className="hidden cursor-pointer rounded p-0.5 text-text-tertiary hover:text-status-red group-hover:block"
-											onClick={(e) => {
-												e.stopPropagation();
-												deleteAnnotation(ann.id);
-											}}
-										>
-											<X size={10} />
-										</button>
-									</div>
-									<p
-										className={cn(
-											"mt-1 whitespace-pre-wrap text-xs",
-											ann.resolved ? "line-through text-text-tertiary" : "text-text-primary",
-										)}
-									>
-										{ann.comment}
+									{highlightedMarkdown}
+								</ReactMarkdown>
+							</div>
+							{!markdown.trim() ? (
+								<div className="flex flex-col items-center justify-center py-20 text-center">
+									<p className="text-text-secondary text-sm max-w-sm">
+										Your roadmap is empty. Use the <strong>Kanban agent</strong> in the left sidebar to
+										generate a roadmap from your project description.
 									</p>
 								</div>
-							);
-						})}
-						{annotations.length === 0 && !pendingText && (
-							<p className="px-3 py-6 text-center text-[11px] text-text-tertiary">
-								Select text in the document and click "Comment" to start reviewing.
-							</p>
-						)}
+							) : null}
+						</div>
 					</div>
-				</div>
+				) : (
+					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">
+						<div className="mx-auto" style={{ maxWidth: 720 }}>
+							{selectedItem ? (
+								<SpecTabContent item={selectedItem} tab={effectiveTab as "requirements" | "design" | "tasks"} />
+							) : (
+								<p className="text-text-tertiary text-sm text-center py-16">
+									Select a spec from the dropdown above.
+								</p>
+							)}
+						</div>
+					</div>
+				)}
 			</div>
 
 			{/* Selection popover */}
@@ -805,6 +732,36 @@ Key rules:
 					</button>
 				</div>
 			)}
+		</div>
+	);
+}
+
+function SpecTabContent({ item, tab }: { item: RoadmapItem; tab: "requirements" | "design" | "tasks" }): ReactElement {
+	const content =
+		tab === "requirements"
+			? item.requirements
+			: tab === "design"
+				? item.design
+				: item.tasks.length > 0
+					? item.tasks
+							.map(
+								(ref) => `- [ ] \`${ref.taskId}\` ${ref.title}${ref.agentCreated ? " _(agent-created)_" : ""}`,
+							)
+							.join("\n")
+					: null;
+
+	if (!content) {
+		const messages = {
+			requirements: "No requirements yet. Use the sidebar agent to generate requirements for this item.",
+			design: "No design yet. Use the sidebar agent to generate a design for this item.",
+			tasks: "No tasks yet. Click ⚡ Generate tasks to decompose this item.",
+		};
+		return <p className="text-text-tertiary text-sm text-center py-16">{messages[tab]}</p>;
+	}
+
+	return (
+		<div className="prose-sm">
+			<ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
 		</div>
 	);
 }

@@ -365,9 +365,14 @@ export function RoadmapView({
 
 	const handleClickMark = useCallback(
 		(id: string) => {
-			setActiveId(id === activeId ? null : id);
+			const ann = annotations.find((a) => a.id === id);
+			if (ann) {
+				setPendingText(ann.selectedText);
+				setCommentDraft(ann.comment);
+				setActiveId(id);
+			}
 		},
-		[activeId],
+		[annotations],
 	);
 
 	const saveMarkdown = useCallback(
@@ -443,14 +448,20 @@ export function RoadmapView({
 	const submitComment = useCallback(() => {
 		const text = commentDraft.trim();
 		if (!text || !pendingText) return;
-		const color = HIGHLIGHT_COLORS[nextColorIdx.current % HIGHLIGHT_COLORS.length]!;
-		nextColorIdx.current += 1;
-		const ann: Annotation = { id: createId(), selectedText: pendingText, comment: text, createdAt: now(), color };
-		setAnnotations((prev) => [...prev, ann]);
-		setActiveId(ann.id);
+		// If editing an existing annotation, update it
+		const existing = activeId ? annotations.find((a) => a.id === activeId) : null;
+		if (existing) {
+			setAnnotations((prev) => prev.map((a) => (a.id === activeId ? { ...a, comment: text } : a)));
+		} else {
+			const color = HIGHLIGHT_COLORS[nextColorIdx.current % HIGHLIGHT_COLORS.length]!;
+			nextColorIdx.current += 1;
+			const ann: Annotation = { id: createId(), selectedText: pendingText, comment: text, createdAt: now(), color };
+			setAnnotations((prev) => [...prev, ann]);
+			setActiveId(ann.id);
+		}
 		setPendingText(null);
 		setCommentDraft("");
-	}, [commentDraft, pendingText]);
+	}, [activeId, annotations, commentDraft, pendingText]);
 
 	const deleteAnnotation = useCallback(
 		(id: string) => {
@@ -820,7 +831,11 @@ export function RoadmapView({
 								{annotations.map((ann) => (
 									<div
 										key={ann.id}
-										onClick={() => setActiveId(ann.id)}
+										onClick={() => {
+											setPendingText(ann.selectedText);
+											setCommentDraft(ann.comment);
+											setActiveId(ann.id);
+										}}
 										className={`rounded-md border p-2 cursor-pointer transition-colors ${ann.id === activeId ? "border-accent bg-accent/5" : "border-border hover:border-border-bright"}`}
 										style={{ borderLeftWidth: 3, borderLeftColor: ann.color }}
 									>

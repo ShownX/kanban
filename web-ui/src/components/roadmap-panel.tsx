@@ -172,6 +172,15 @@ export function RoadmapView({
 	const [selectedItemId, setSelectedItemId] = useState<string | null>("__overall__");
 	const [activeTab, setActiveTab] = useState<"roadmap" | "requirements" | "design" | "tasks">("requirements");
 	const [annotations, setAnnotations] = useState<Annotation[]>(() => (board.roadmapAnnotations ?? []) as Annotation[]);
+
+	// Persist annotations to board state whenever they change
+	const annotationsRef = useRef(annotations);
+	useEffect(() => {
+		if (annotationsRef.current !== annotations) {
+			annotationsRef.current = annotations;
+			onBoardChange({ ...board, roadmapAnnotations: annotations });
+		}
+	}, [annotations, board, onBoardChange]);
 	const [pendingText, setPendingText] = useState<string | null>(null);
 	const [commentDraft, setCommentDraft] = useState("");
 	const [popover, setPopover] = useState<{ x: number; y: number; text: string } | null>(null);

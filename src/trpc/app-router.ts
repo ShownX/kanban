@@ -628,6 +628,20 @@ export const runtimeAppRouter = t.router({
 				const parsed = parseDeliverableMd(md, input.taskId);
 				return { markdown: md, parsed };
 			}),
+		readSpecFile: workspaceProcedure
+			.input(z.object({ specName: z.string(), fileName: z.string() }))
+			.output(z.object({ content: z.string().nullable() }))
+			.query(async ({ ctx, input }) => {
+				const { readFile } = await import("node:fs/promises");
+				const { join } = await import("node:path");
+				const filePath = join(ctx.workspaceScope.workspacePath, ".kanban", "specs", input.specName, input.fileName);
+				try {
+					const content = await readFile(filePath, "utf8");
+					return { content };
+				} catch {
+					return { content: null };
+				}
+			}),
 		runCommand: workspaceProcedure
 			.input(runtimeCommandRunRequestSchema)
 			.output(runtimeCommandRunResponseSchema)

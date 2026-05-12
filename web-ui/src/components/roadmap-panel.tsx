@@ -764,7 +764,11 @@ export function RoadmapView({
 					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">
 						<div className="px-8">
 							{selectedItem ? (
-								<SpecTabContent item={selectedItem} tab={effectiveTab as "requirements" | "design" | "tasks"} />
+								<SpecTabContent
+									item={selectedItem}
+									tab={effectiveTab as "requirements" | "design" | "tasks"}
+									workspaceId={workspaceId}
+								/>
 							) : (
 								<p className="text-text-tertiary text-sm text-center py-16">
 									Select a spec from the dropdown above.
@@ -889,8 +893,33 @@ export function RoadmapView({
 	);
 }
 
-function SpecTabContent({ item, tab }: { item: RoadmapItem; tab: "requirements" | "design" | "tasks" }): ReactElement {
-	const content =
+function SpecTabContent({
+	item,
+	tab,
+	workspaceId,
+}: {
+	item: RoadmapItem;
+	tab: "requirements" | "design" | "tasks";
+	workspaceId: string | null;
+}): ReactElement {
+	const [fileContent, setFileContent] = useState<string | null>(null);
+	const specSlug = item.id === "__overall__" ? "overall" : item.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+	const fileName = `${tab === "tasks" ? "tasks" : tab}.md`;
+
+	useEffect(() => {
+		if (!workspaceId) return;
+		setFileContent(null);
+		const trpc = getRuntimeTrpcClient(workspaceId);
+		void trpc.runtime.readSpecFile
+			.query({ specName: specSlug, fileName })
+			.then((r) => {
+				setFileContent(r.content);
+			})
+			.catch(() => {});
+	}, [workspaceId, specSlug, fileName]);
+
+	// Fallback to inline content from parsed roadmap item
+	const inlineContent =
 		tab === "requirements"
 			? item.requirements
 			: tab === "design"
@@ -902,6 +931,8 @@ function SpecTabContent({ item, tab }: { item: RoadmapItem; tab: "requirements" 
 							)
 							.join("\n")
 					: null;
+
+	const content = fileContent ?? inlineContent;
 
 	if (!content) {
 		const messages = {

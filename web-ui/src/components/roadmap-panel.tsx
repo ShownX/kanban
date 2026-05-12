@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RoadmapCreateTaskDialog } from "@/components/roadmap-create-task-dialog";
 import { Button } from "@/components/ui/button";
+import { MarkdownCodeBlock } from "@/components/ui/markdown-code-block";
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -706,19 +707,7 @@ export function RoadmapView({
 											handleClickMark,
 										) as never,
 										em: ({ children }) => <em className="italic">{children}</em>,
-										code: ({ children, className }) => {
-											if (className?.startsWith("language-"))
-												return (
-													<code className="block rounded-md bg-surface-2 px-4 py-3 text-xs font-mono text-text-primary overflow-x-auto mb-3">
-														{children}
-													</code>
-												);
-											return (
-												<code className="rounded-sm bg-surface-2 px-1 py-0.5 text-xs font-mono text-text-primary">
-													{children}
-												</code>
-											);
-										},
+										code: MarkdownCodeBlock as never,
 										blockquote: ({ children }) => (
 											<blockquote className="border-l-2 border-accent pl-3 mb-3 text-sm italic text-text-tertiary">
 												{children}
@@ -950,7 +939,9 @@ function SpecTabContent({
 
 	return (
 		<div className="prose-sm">
-			<ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+			<ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: MarkdownCodeBlock as never }}>
+				{content}
+			</ReactMarkdown>
 		</div>
 	);
 }

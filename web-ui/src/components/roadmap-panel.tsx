@@ -186,6 +186,7 @@ export function RoadmapView({
 		}
 	}, [annotations]);
 	const [pendingText, setPendingText] = useState<string | null>(null);
+	const [isGenerating, setIsGenerating] = useState(false);
 	const [commentDraft, setCommentDraft] = useState("");
 	const [popover, setPopover] = useState<{ x: number; y: number; text: string } | null>(null);
 	const [activeId, setActiveId] = useState<string | null>(null);
@@ -535,7 +536,23 @@ export function RoadmapView({
 	const effectiveTab = activeTab;
 
 	return (
-		<div className="flex flex-1 flex-col min-h-0 min-w-0">
+		<div className={`flex flex-1 flex-col min-h-0 min-w-0 relative ${isGenerating ? "generating-border" : ""}`}>
+			{isGenerating && (
+				<style>{`
+					@keyframes border-spin {
+						0% { border-color: var(--color-accent); }
+						25% { border-color: var(--color-status-green); }
+						50% { border-color: var(--color-status-yellow); }
+						75% { border-color: var(--color-accent-2, var(--color-accent)); }
+						100% { border-color: var(--color-accent); }
+					}
+					.generating-border {
+						border: 2px solid var(--color-accent);
+						border-radius: 4px;
+						animation: border-spin 2s linear infinite;
+					}
+				`}</style>
+			)}
 			<RoadmapCreateTaskDialog
 				open={createTaskForItemId !== null}
 				roadmapItemTitle={
@@ -583,6 +600,8 @@ export function RoadmapView({
 									"Read .kanban/ROADMAP.md and the human's latest comments. Update the roadmap based on the comments: revise items, adjust statuses, add new items, or answer questions. Preserve the table structure and all existing columns.";
 							}
 							onRequestUpdate(prompt);
+							setIsGenerating(true);
+							setTimeout(() => setIsGenerating(false), 30000);
 						}}
 					>
 						⚡ Generate

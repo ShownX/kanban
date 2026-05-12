@@ -519,27 +519,38 @@ sequenceDiagram
 
 ## Rules for writing requirements
 
-- Each requirement gets a stable ID (REQ-1, US-1, NFR-1, etc.)
+- Start with a clear # heading and brief overview paragraph
+- Group requirements by feature area using ## headings
+- Each requirement gets a stable ID (REQ-1, US-1, NFR-1, etc.) as **bold** prefix
 - Use EARS "WHEN ... THE SYSTEM SHALL ..." for testable behavioral requirements
 - Non-functional requirements must have measurable criteria (latency < Xms, etc.)
 - Requirements must be atomic — one behavior per bullet
+- Use tables for requirement matrices when comparing multiple scenarios
+- Add a ## Priority section with a table (ID | Priority | Rationale)
 - Task agents reference requirement IDs in their deliverables
 
 ## Rules for writing design
 
-- List concrete file paths where implementation will live
-- Include data models as code/type definitions
-- Sequence diagrams for multi-component interactions
-- Error handling section for each failure mode
-- Testing strategy so task agents know what tests to write
+- Start with a clear # heading and a ## Overview section (2-3 sentences)
+- Use ## headings for each major section (Components, Data Model, Sequences, etc.)
+- List concrete file paths as a table: | File | Responsibility |
+- Include data models as fenced code blocks with language tags (e.g. typescript, sql)
+- Use mermaid fenced blocks for sequence diagrams, flowcharts, and architecture
+- Add a ## Error Handling section as a table: | Error Case | Behavior | HTTP Code |
+- Add a ## Testing Strategy section with bullet points per test type
+- Use **bold** for key terms and backtick-wrapped names for code references
 
 ## Rules for writing tasks
 
-- Each task must be self-contained: a coding agent can execute it without reading the full roadmap
-- Task prompt should include: what to build, which files to create/modify, which requirements it satisfies, what tests to write
+- Start with a clear # heading
+- Use a numbered ## heading per task (## 1. Task title)
+- Each task has metadata as a bullet list: **ID**, **Status**, **Requirements**, **Dependencies**
+- Task body (after metadata) is the prompt — must be self-contained
+- Include: what to build, which files to create/modify, which requirements it satisfies, what tests to write
 - Note dependencies in parentheses: "(depends on t_xxx)"
 - Order tasks so foundational work (models, configs) comes before features
 - One task = one agent session = one focused piece of work
+- Add a ## Summary table at the top: | # | Task | Status | Dependencies |
 
 ## Constraints
 

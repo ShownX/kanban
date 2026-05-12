@@ -213,6 +213,7 @@ export function RoadmapView({
 
 	// Load from file + poll every 3s for changes
 	const [parsedItems, setParsedItems] = useState<RoadmapItem[]>([]);
+	const lastParsedContentRef = useRef("");
 	const loadFile = useCallback(() => {
 		if (!workspaceId) return;
 		const trpc = getRuntimeTrpcClient(workspaceId);
@@ -221,12 +222,15 @@ export function RoadmapView({
 			.then((r) => {
 				if (r.exists && r.content) {
 					setMarkdown((prev) => (prev !== r.content ? r.content : prev));
-					void trpc.runtime.importRoadmapText
-						.mutate({ content: r.content })
-						.then((result) => {
-							setParsedItems(result.items as RoadmapItem[]);
-						})
-						.catch(() => {});
+					if (r.content !== lastParsedContentRef.current) {
+						lastParsedContentRef.current = r.content;
+						void trpc.runtime.importRoadmapText
+							.mutate({ content: r.content })
+							.then((result) => {
+								setParsedItems(result.items as RoadmapItem[]);
+							})
+							.catch(() => {});
+					}
 				}
 			})
 			.catch(() => {});
@@ -902,22 +906,23 @@ function SpecTabContent({
 	tab: "requirements" | "design" | "tasks";
 	workspaceId: string | null;
 }): ReactElement {
-	const [fileContent, setFileContent] = useState<string | null>(null);
+	const [cache, setCache] = useState<Record<string, string | null>>({});
 	const specSlug = item.id === "__overall__" ? "overall" : item.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 	const fileName = `${tab === "tasks" ? "tasks" : tab}.md`;
+	const cacheKey = `${specSlug}/${fileName}`;
 
 	useEffect(() => {
-		if (!workspaceId) return;
-		setFileContent(null);
+		if (!workspaceId || cache[cacheKey] !== undefined) return;
 		const trpc = getRuntimeTrpcClient(workspaceId);
 		void trpc.runtime.readSpecFile
 			.query({ specName: specSlug, fileName })
 			.then((r) => {
-				setFileContent(r.content);
+				setCache((prev) => ({ ...prev, [cacheKey]: r.content }));
 			})
-			.catch(() => {});
-	}, [workspaceId, specSlug, fileName]);
-
+			.catch(() => {
+				setCache((prev) => ({ ...prev, [cacheKey]: null }));
+			});
+	}, [workspaceId, specSlug, fileName, cacheKey, cache]);
 	// Fallback to inline content from parsed roadmap item
 	const inlineContent =
 		tab === "requirements"
@@ -932,7 +937,7 @@ function SpecTabContent({
 							.join("\n")
 					: null;
 
-	const content = fileContent ?? inlineContent;
+	const content = cache[cacheKey] ?? inlineContent;
 
 	if (!content) {
 		const messages = {

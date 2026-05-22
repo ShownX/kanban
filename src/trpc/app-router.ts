@@ -839,6 +839,25 @@ export const runtimeAppRouter = t.router({
 				const { readExperimentLogs } = await import("../workspace/experiment-log-file.js");
 				return await readExperimentLogs(ctx.workspaceScope.workspacePath, input.taskId);
 			}),
+		readReviewFeedback: workspaceProcedure
+			.input(z.object({ taskId: z.string() }))
+			.output(
+				z.object({
+					content: z.string().nullable(),
+					feedback: z
+						.object({
+							outcome: z.enum(["rejected", "escalated"]),
+							roadmapItemId: z.string(),
+							reviewedAt: z.string(),
+							note: z.string().optional(),
+						})
+						.nullable(),
+				}),
+			)
+			.query(async ({ ctx, input }) => {
+				const { readReviewFeedback } = await import("../workspace/review-feedback-file.js");
+				return await readReviewFeedback(ctx.workspaceScope.workspacePath, input.taskId);
+			}),
 		readExperimentLogFull: workspaceProcedure
 			.input(z.object({ taskId: z.string(), name: z.string() }))
 			.output(experimentLogEntrySchema.nullable())
@@ -854,12 +873,19 @@ export const runtimeAppRouter = t.router({
 					roadmapItemId: z.string(),
 					taskId: z.string(),
 					outcome: validationReviewOutcomeIoSchema,
+					note: z.string().optional(),
 				}),
 			)
 			.output(z.object({ updated: z.boolean() }))
 			.mutation(async ({ ctx, input }) => {
 				const { reviewValidation, maybeUpdateRoadmapStatus } = await import("../workspace/validation-lifecycle.js");
-				await reviewValidation(ctx.workspaceScope.workspacePath, input.roadmapItemId, input.taskId, input.outcome);
+				await reviewValidation(
+					ctx.workspaceScope.workspacePath,
+					input.roadmapItemId,
+					input.taskId,
+					input.outcome,
+					input.note,
+				);
 				// If accepted, check whether the roadmap item is fully done
 				let updated = false;
 				if (input.outcome === "accepted") {

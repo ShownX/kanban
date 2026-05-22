@@ -22,10 +22,27 @@ export const runtimeRoadmapAgentCommentSchema = z.object({
 });
 export type RuntimeRoadmapAgentComment = z.infer<typeof runtimeRoadmapAgentCommentSchema>;
 
+export const validationReviewOutcomeSchema = z.enum(["accepted", "rejected", "escalated"]);
+export type ValidationReviewOutcome = z.infer<typeof validationReviewOutcomeSchema>;
+
+export const pendingValidationSchema = z.object({
+	taskId: z.string(),
+	reportResult: z.enum(["pass", "fail", "needs_review"]),
+	validatedAt: z.string(),
+	reviewed: z.boolean().default(false),
+	reviewOutcome: validationReviewOutcomeSchema.optional(),
+	/** Optional note explaining the review decision. Required by the UI for reject/escalate. */
+	reviewNote: z.string().optional(),
+	/** ISO-8601 timestamp recorded when the review was made. */
+	reviewedAt: z.string().optional(),
+});
+export type PendingValidation = z.infer<typeof pendingValidationSchema>;
+
 export const runtimeRoadmapItemStateSchema = z.object({
 	itemId: z.string(),
 	agentCreatedTaskIds: z.array(z.string()).default([]),
 	agentComments: z.array(runtimeRoadmapAgentCommentSchema).default([]),
+	pendingValidations: z.array(pendingValidationSchema).default([]),
 	lastUpdatedAt: z.number(),
 });
 export type RuntimeRoadmapItemState = z.infer<typeof runtimeRoadmapItemStateSchema>;
@@ -72,6 +89,7 @@ export function getOrCreateItemState(
 		itemId,
 		agentCreatedTaskIds: [],
 		agentComments: [],
+		pendingValidations: [],
 		lastUpdatedAt: now,
 	};
 }

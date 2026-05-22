@@ -29,6 +29,7 @@ import { type ReactElement, useCallback, useEffect, useRef, useState } from "rea
 import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
+import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 
@@ -40,6 +41,7 @@ type RouterOutputs = inferRouterOutputs<RuntimeAppRouter>;
 type DeliverableResponse = RouterOutputs["runtime"]["readDeliverable"];
 type ValidationReportResponse = RouterOutputs["runtime"]["readValidationReport"];
 type ExperimentLogsResponse = RouterOutputs["runtime"]["readExperimentLogs"];
+type ReviewFeedbackResponse = RouterOutputs["runtime"]["readReviewFeedback"];
 
 interface DeliverableJobView {
 	title: string;
@@ -128,6 +130,7 @@ interface DeliverableValidationData {
 	deliverable: DeliverableResponse | null;
 	validationReport: ValidationReportResponse | null;
 	experimentLogs: ExperimentLogsResponse;
+	reviewFeedback: ReviewFeedbackResponse | null;
 	isLoading: boolean;
 	refetch: () => void;
 }
@@ -140,6 +143,7 @@ function useDeliverableValidation(
 	const [deliverable, setDeliverable] = useState<DeliverableResponse | null>(null);
 	const [validationReport, setValidationReport] = useState<ValidationReportResponse | null>(null);
 	const [experimentLogs, setExperimentLogs] = useState<ExperimentLogsResponse>([]);
+	const [reviewFeedback, setReviewFeedback] = useState<ReviewFeedbackResponse | null>(null);
 	const [isLoading, setIsLoading] = useState(true);
 	const isMountedRef = useRef(true);
 
@@ -178,7 +182,16 @@ function useDeliverableValidation(
 				if (isMountedRef.current) setExperimentLogs([]);
 			});
 
-		void Promise.all([deliverablePromise, reportPromise, experimentsPromise]).then(() => {
+		const feedbackPromise = trpc.runtime.readReviewFeedback
+			.query({ taskId })
+			.then((result) => {
+				if (isMountedRef.current) setReviewFeedback(result);
+			})
+			.catch(() => {
+				if (isMountedRef.current) setReviewFeedback(null);
+			});
+
+		void Promise.all([deliverablePromise, reportPromise, experimentsPromise, feedbackPromise]).then(() => {
 			if (isMountedRef.current) setIsLoading(false);
 		});
 	}, [taskId, workspaceId]);
@@ -189,6 +202,7 @@ function useDeliverableValidation(
 		setDeliverable(null);
 		setValidationReport(null);
 		setExperimentLogs([]);
+		setReviewFeedback(null);
 		fetchData();
 		return () => {
 			isMountedRef.current = false;
@@ -205,7 +219,7 @@ function useDeliverableValidation(
 		};
 	}, [refreshToken, fetchData]);
 
-	return { deliverable, validationReport, experimentLogs, isLoading, refetch: fetchData };
+	return { deliverable, validationReport, experimentLogs, reviewFeedback, isLoading, refetch: fetchData };
 }
 
 // ---------------------------------------------------------------------------
@@ -973,13 +987,11 @@ export function DeliverableValidationPanel({
 	ownedPaths,
 	refreshToken,
 }: DeliverableValidationPanelProps): ReactElement | null {
-	const { deliverable, validationReport, experimentLogs, isLoading, refetch } = useDeliverableValidation(
-		taskId,
-		workspaceId,
-		refreshToken,
-	);
+	const { deliverable, validationReport, experimentLogs, reviewFeedback, isLoading, refetch } =
+		useDeliverableValidation(taskId, workspaceId, refreshToken);
 	const [pendingReview, setPendingReview] = useState<ReviewOutcome | null>(null);
 	const [isValidating, setIsValidating] = useState(false);
+	const [noteDialogOutcome, setNoteDialogOutcome] = useState<"rejected" | "escalated" | null>(null);
 
 	const parsed = deliverable?.parsed;
 	const report = validationReport?.report;
@@ -987,6 +999,7 @@ export function DeliverableValidationPanel({
 	const hasParsedDeliverable = isDeliverableParsed(parsed);
 	const hasReport = isValidationReport(report);
 	const hasExperiments = experimentLogs.length > 0;
+	const priorFeedback = reviewFeedback?.feedback ?? null;
 
 	const canRunValidation =
 		!isValidating &&
@@ -996,13 +1009,18 @@ export function DeliverableValidationPanel({
 		specSlug != null &&
 		ownedPaths != null;
 
-	const handleReview = useCallback(
-		async (outcome: ReviewOutcome) => {
+	const submitReview = useCallback(
+		async (outcome: ReviewOutcome, note?: string) => {
 			if (!workspaceId || !roadmapItemId) return;
 			setPendingReview(outcome);
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
-				await trpc.runtime.reviewValidation.mutate({ taskId, roadmapItemId, outcome });
+				await trpc.runtime.reviewValidation.mutate({
+					taskId,
+					roadmapItemId,
+					outcome,
+					...(note ? { note } : {}),
+				});
 				showAppToast({ intent: "success", message: REVIEW_OUTCOME_LABEL[outcome], timeout: 3000 });
 				refetch();
 			} catch (error) {
@@ -1013,6 +1031,17 @@ export function DeliverableValidationPanel({
 			}
 		},
 		[workspaceId, roadmapItemId, taskId, refetch],
+	);
+
+	const handleReview = useCallback(
+		(outcome: ReviewOutcome) => {
+			if (outcome === "accepted") {
+				void submitReview("accepted");
+				return;
+			}
+			setNoteDialogOutcome(outcome);
+		},
+		[submitReview],
 	);
 
 	const handleRunValidation = useCallback(async () => {
@@ -1058,6 +1087,7 @@ export function DeliverableValidationPanel({
 
 	return (
 		<div className="flex flex-col gap-4 border-t border-border px-3 py-3">
+			{priorFeedback ? <PriorFeedbackBanner feedback={priorFeedback} /> : null}
 			{showStalenessWarning ? <StalenessWarning /> : null}
 			{hasParsedDeliverable ? (
 				<DeliverableSection parsed={parsed} rawMarkdown={deliverableMarkdown} />
@@ -1103,6 +1133,95 @@ export function DeliverableValidationPanel({
 			{hasExperiments ? (
 				<ExperimentLogsSection logs={experimentLogs} workspaceId={workspaceId} taskId={taskId} />
 			) : null}
+			<ReviewNoteDialog
+				outcome={noteDialogOutcome}
+				onClose={() => setNoteDialogOutcome(null)}
+				onSubmit={(note) => {
+					const outcome = noteDialogOutcome;
+					setNoteDialogOutcome(null);
+					if (outcome) void submitReview(outcome, note);
+				}}
+			/>
 		</div>
+	);
+}
+
+function PriorFeedbackBanner({
+	feedback,
+}: {
+	feedback: NonNullable<ReviewFeedbackResponse["feedback"]>;
+}): ReactElement {
+	const reviewedRelative = formatRelativeTime(feedback.reviewedAt);
+	return (
+		<div className="flex items-start gap-2 rounded-md border border-status-orange/30 bg-status-orange/10 px-3 py-2 text-xs text-status-orange">
+			<AlertTriangle size={14} className="mt-0.5 shrink-0" />
+			<div className="min-w-0 flex-1">
+				<div className="font-medium">
+					Previously {feedback.outcome === "rejected" ? "rejected" : "escalated"}
+					{reviewedRelative ? (
+						<span className="ml-1 font-normal text-text-tertiary">{reviewedRelative}</span>
+					) : null}
+				</div>
+				{feedback.note ? (
+					<div className="mt-0.5 whitespace-pre-wrap text-status-orange/80">{feedback.note}</div>
+				) : null}
+				<div className="mt-0.5 text-[10px] text-text-tertiary">
+					review-feedback.md is in the worktree; the agent will read it on resume.
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ReviewNoteDialog({
+	outcome,
+	onClose,
+	onSubmit,
+}: {
+	outcome: "rejected" | "escalated" | null;
+	onClose: () => void;
+	onSubmit: (note: string | undefined) => void;
+}): ReactElement | null {
+	const [note, setNote] = useState("");
+	useEffect(() => {
+		if (outcome) setNote("");
+	}, [outcome]);
+
+	if (!outcome) return null;
+
+	const isRejected = outcome === "rejected";
+	const title = isRejected ? "Reject validation" : "Escalate validation";
+	const description = isRejected
+		? "Tell the task agent what to fix. The note will be saved to review-feedback.md so the agent can pick it up on resume."
+		: "Optionally explain what the human reviewer should look at.";
+
+	return (
+		<Dialog open onOpenChange={(open) => !open && onClose()} contentClassName="max-w-md">
+			<DialogHeader title={title} icon={isRejected ? <ThumbsDown size={14} /> : <AlertTriangle size={14} />} />
+			<DialogBody>
+				<p className="mb-2 text-xs text-text-tertiary">{description}</p>
+				<textarea
+					value={note}
+					onChange={(event) => setNote(event.currentTarget.value)}
+					placeholder={isRejected ? "What should the agent change?" : "Optional note for the human reviewer"}
+					rows={6}
+					className="w-full resize-vertical rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+					autoFocus
+				/>
+			</DialogBody>
+			<DialogFooter>
+				<Button variant="ghost" size="sm" onClick={onClose}>
+					Cancel
+				</Button>
+				<Button
+					variant={isRejected ? "danger" : "default"}
+					size="sm"
+					disabled={isRejected && note.trim().length === 0}
+					onClick={() => onSubmit(note.trim() || undefined)}
+				>
+					{isRejected ? "Reject" : "Escalate"}
+				</Button>
+			</DialogFooter>
+		</Dialog>
 	);
 }

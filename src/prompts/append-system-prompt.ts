@@ -385,6 +385,14 @@ Examples:
 Each log file should be a complete, self-contained record of one experiment so
 the reviewer can read it without re-running the experiment.
 
+Reviewer feedback (when resuming a rejected/escalated task):
+Before starting any new work, check for \`.kanban/tasks/${taskId}/review-feedback.md\`.
+If it exists, the reviewer rejected or escalated the previous deliverable. Read
+the **Reviewer note** section, address every concern in code, then update
+\`deliverable.md\` (do not just append — rewrite the affected sections to
+reflect the new state). After your fix, delete \`review-feedback.md\` so the
+next reviewer sees a clean slate.
+
 Rules:
 - Write the deliverable BEFORE signaling completion.
 - Use [x] for met/done, [~] for partial, [!] for failed, [ ] for skipped.
@@ -393,6 +401,7 @@ Rules:
 - Save experiment outputs to \`experiments/\` rather than pasting them into the deliverable.
 - If you have open questions, list them — do not make silent assumptions.
 - Keep the Summary concise (1-2 sentences).
+- On resume, ALWAYS check for review-feedback.md and address it before doing anything else.
 `;
 }
 

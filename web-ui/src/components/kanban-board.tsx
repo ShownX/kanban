@@ -9,7 +9,7 @@ import {
 	type SnapDragActions,
 } from "@hello-pangea/dnd";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BoardColumn } from "@/components/board-column";
 import { DependencyOverlay } from "@/components/dependencies/dependency-overlay";
@@ -44,6 +44,7 @@ export function KanbanBoard({
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
 	onRestoreFromTrashTask,
+	onToggleAutoReview,
 	commitTaskLoadingById,
 	openPrTaskLoadingById,
 	moveToTrashLoadingById,
@@ -54,6 +55,10 @@ export function KanbanBoard({
 	onRequestProgrammaticCardMoveReady,
 	workspacePath,
 	defaultClineModelId,
+	onNavigateToRoadmapItem,
+	highlightCardId,
+	showDependencyArrows = false,
+	validationByTaskId,
 }: {
 	data: BoardData;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
@@ -71,6 +76,7 @@ export function KanbanBoard({
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
 	onRestoreFromTrashTask?: (taskId: string) => void;
+	onToggleAutoReview?: (taskId: string, enabled: boolean) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
 	moveToTrashLoadingById?: Record<string, boolean>;
@@ -81,6 +87,11 @@ export function KanbanBoard({
 	onRequestProgrammaticCardMoveReady?: (requestMove: RequestProgrammaticCardMove | null) => void;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
+	onNavigateToRoadmapItem?: (itemId: string) => void;
+	highlightCardId?: string | null;
+	showDependencyArrows?: boolean;
+	/** Map of taskId -> pending validation entry, used to render badges on cards. */
+	validationByTaskId?: Record<string, { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean }>;
 }): React.ReactElement {
 	const dragOccurredRef = useRef(false);
 	const boardRef = useRef<HTMLElement>(null);
@@ -96,6 +107,17 @@ export function KanbanBoard({
 		canLinkTasks: (fromTaskId, toTaskId) => canCreateTaskDependency(data, fromTaskId, toTaskId),
 		onCreateDependency,
 	});
+
+	// Reverse-lookup: taskId -> { roadmapItemId, roadmapItemTitle } for cards linked to a roadmap item.
+	const taskRoadmapLookup = useMemo(() => {
+		const lookup = new Map<string, { itemId: string; title: string }>();
+		for (const item of data.roadmap ?? []) {
+			for (const taskId of item.linkedTaskIds) {
+				lookup.set(taskId, { itemId: item.id, title: item.title });
+			}
+		}
+		return lookup;
+	}, [data.roadmap]);
 
 	useEffect(() => {
 		latestDataRef.current = data;
@@ -386,7 +408,7 @@ export function KanbanBoard({
 						column={column}
 						taskSessions={taskSessions}
 						onCreateTask={column.id === "backlog" ? onCreateTask : undefined}
-						onStartTask={column.id === "backlog" ? onStartTask : undefined}
+						onStartTask={column.id === "backlog" || column.id === "in_progress" ? onStartTask : undefined}
 						onStartAllTasks={column.id === "backlog" ? onStartAllTasks : undefined}
 						onClearTrash={column.id === "trash" ? onClearTrash : undefined}
 						editingTaskId={column.id === "backlog" ? editingTaskId : null}
@@ -396,8 +418,9 @@ export function KanbanBoard({
 						onCommitTask={column.id === "review" ? onCommitTask : undefined}
 						onOpenPrTask={column.id === "review" ? onOpenPrTask : undefined}
 						onCancelAutomaticTaskAction={onCancelAutomaticTaskAction}
-						onMoveToTrashTask={column.id === "review" ? onMoveToTrashTask : undefined}
+						onMoveToTrashTask={column.id !== "trash" ? onMoveToTrashTask : undefined}
 						onRestoreFromTrashTask={column.id === "trash" ? onRestoreFromTrashTask : undefined}
+						onToggleAutoReview={column.id === "review" ? onToggleAutoReview : undefined}
 						commitTaskLoadingById={column.id === "review" ? commitTaskLoadingById : undefined}
 						openPrTaskLoadingById={column.id === "review" ? openPrTaskLoadingById : undefined}
 						moveToTrashLoadingById={column.id === "review" ? moveToTrashLoadingById : undefined}
@@ -411,6 +434,10 @@ export function KanbanBoard({
 						isDependencyLinking={dependencyLinking.draft !== null}
 						workspacePath={workspacePath}
 						defaultClineModelId={defaultClineModelId}
+						taskRoadmapLookup={taskRoadmapLookup}
+						onNavigateToRoadmapItem={onNavigateToRoadmapItem}
+						highlightCardId={highlightCardId}
+						validationByTaskId={column.id === "review" ? validationByTaskId : undefined}
 						onCardClick={(card) => {
 							if (!dragOccurredRef.current) {
 								onCardSelect(card.id);
@@ -418,15 +445,17 @@ export function KanbanBoard({
 						}}
 					/>
 				))}
-				<DependencyOverlay
-					containerRef={boardRef}
-					dependencies={dependencies}
-					draft={dependencyLinking.draft}
-					activeTaskId={activeDragTaskId ?? programmaticCardMoveInFlight?.taskId ?? null}
-					activeTaskEffectiveColumnId={activeTaskEffectiveColumnId}
-					isMotionActive={activeDragTaskId !== null || programmaticCardMoveInFlight !== null}
-					onDeleteDependency={onDeleteDependency}
-				/>
+				{showDependencyArrows ? (
+					<DependencyOverlay
+						containerRef={boardRef}
+						dependencies={dependencies}
+						draft={dependencyLinking.draft}
+						activeTaskId={activeDragTaskId ?? programmaticCardMoveInFlight?.taskId ?? null}
+						activeTaskEffectiveColumnId={activeTaskEffectiveColumnId}
+						isMotionActive={activeDragTaskId !== null || programmaticCardMoveInFlight !== null}
+						onDeleteDependency={onDeleteDependency}
+					/>
+				) : null}
 			</section>
 		</DragDropContext>
 	);

@@ -15,7 +15,7 @@ import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-pa
 import { GitHistoryView } from "@/components/git-history-view";
 import { KanbanBoard } from "@/components/kanban-board";
 import { ProjectNavigationPanel } from "@/components/project-navigation-panel";
-import { RoadmapView } from "@/components/roadmap-panel";
+import { RoadmapView } from "@/components/roadmap";
 import { RuntimeSettingsDialog, type RuntimeSettingsSection } from "@/components/runtime-settings-dialog";
 import { StartupOnboardingDialog } from "@/components/startup-onboarding-dialog";
 import { TaskCreateDialog } from "@/components/task-create-dialog";
@@ -67,11 +67,17 @@ import {
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
 import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { usePendingValidations } from "@/runtime/use-pending-validations";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
-import { applyTaskDetailClineSettingsChange, findCardSelection } from "@/state/board-state";
+import {
+	applyTaskDetailClineSettingsChange,
+	disableTaskAutoReview,
+	enableTaskAutoReview,
+	findCardSelection,
+} from "@/state/board-state";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -92,6 +98,9 @@ export default function App(): ReactElement {
 	const [isClearTrashDialogOpen, setIsClearTrashDialogOpen] = useState(false);
 	const [isGitHistoryOpen, setIsGitHistoryOpen] = useState(false);
 	const [isRoadmapOpen, setIsRoadmapOpen] = useState(() => localStorage.getItem("kanban.roadmap-open") === "true");
+	const [roadmapNavigateToItemId, setRoadmapNavigateToItemId] = useState<string | null>(null);
+	const [highlightCardId, setHighlightCardId] = useState<string | null>(null);
+	const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(() => {
 		localStorage.setItem("kanban.roadmap-open", isRoadmapOpen ? "true" : "false");
 	}, [isRoadmapOpen]);
@@ -109,6 +118,7 @@ export default function App(): ReactElement {
 		projects,
 		workspaceState: streamedWorkspaceState,
 		workspaceMetadata,
+		tokenUsage,
 		latestTaskChatMessage,
 		taskChatMessagesByTaskId,
 		latestTaskReadyForReview,
@@ -285,6 +295,8 @@ export default function App(): ReactElement {
 		readyForReviewNotificationsEnabled,
 		workspacePath,
 	});
+
+	const validationByTaskId = usePendingValidations(currentProjectId, latestTaskReadyForReview?.triggeredAt ?? null);
 
 	const { createTaskBranchOptions, defaultTaskBranchRef } = useTaskBranchOptions({ workspaceGit });
 	const queueTaskStartAfterEdit = useCallback((taskId: string) => {
@@ -562,6 +574,32 @@ export default function App(): ReactElement {
 	}, [hasNoProjects]);
 	const handleCloseGitHistory = useCallback(() => {
 		setIsGitHistoryOpen(false);
+	}, []);
+	const handleToggleAutoReview = useCallback(
+		(taskId: string, enabled: boolean) => {
+			setBoard((currentBoard) => {
+				const result = enabled
+					? enableTaskAutoReview(currentBoard, taskId, "commit")
+					: disableTaskAutoReview(currentBoard, taskId);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
+
+	const handleNavigateToRoadmapItem = useCallback((itemId: string) => {
+		setRoadmapNavigateToItemId(itemId);
+		setIsRoadmapOpen(true);
+	}, []);
+	const handleNavigateToTask = useCallback((taskId: string) => {
+		setIsRoadmapOpen(false);
+		setRoadmapNavigateToItemId(null);
+		if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+		setHighlightCardId(taskId);
+		highlightTimerRef.current = setTimeout(() => {
+			setHighlightCardId(null);
+			highlightTimerRef.current = null;
+		}, 2000);
 	}, []);
 
 	const {
@@ -893,6 +931,7 @@ export default function App(): ReactElement {
 						onToggleGitHistory={hasNoProjects ? undefined : handleToggleGitHistory}
 						isGitHistoryOpen={isGitHistoryOpen}
 						hideProjectDependentActions={shouldHideProjectDependentTopBarActions}
+						tokenUsage={tokenUsage}
 					/>
 					<div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
 						<div
@@ -929,8 +968,14 @@ export default function App(): ReactElement {
 											<RoadmapView
 												board={board}
 												onBoardChange={setBoard}
-												onClose={() => setIsRoadmapOpen(false)}
+												onClose={() => {
+													setIsRoadmapOpen(false);
+													setRoadmapNavigateToItemId(null);
+												}}
 												workspaceId={currentProjectId}
+												navigateToItemId={roadmapNavigateToItemId}
+												onNavigateComplete={() => setRoadmapNavigateToItemId(null)}
+												onNavigateToTask={handleNavigateToTask}
 												onRequestUpdate={(prompt) => {
 													if (!currentProjectId || !runtimeProjectConfig) return;
 													setHomeSidebarSection("agent");
@@ -980,6 +1025,7 @@ export default function App(): ReactElement {
 												moveToTrashLoadingById={moveToTrashLoadingById}
 												onMoveToTrashTask={handleMoveReviewCardToTrash}
 												onRestoreFromTrashTask={handleRestoreTaskFromTrash}
+												onToggleAutoReview={handleToggleAutoReview}
 												dependencies={board.dependencies}
 												onCreateDependency={handleCreateDependency}
 												onDeleteDependency={handleDeleteDependency}
@@ -988,6 +1034,10 @@ export default function App(): ReactElement {
 												}
 												onDragEnd={handleDragEnd}
 												defaultClineModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
+												showDependencyArrows={runtimeProjectConfig?.showDependencyArrows ?? false}
+												onNavigateToRoadmapItem={handleNavigateToRoadmapItem}
+												highlightCardId={highlightCardId}
+												validationByTaskId={validationByTaskId}
 											/>
 										)}
 									</div>
@@ -1059,6 +1109,7 @@ export default function App(): ReactElement {
 									onSaveTaskTitle={handleSaveTaskTitle}
 									onCommitTask={handleCommitTask}
 									onOpenPrTask={handleOpenPrTask}
+									onToggleAutoReview={handleToggleAutoReview}
 									onAgentCommitTask={handleAgentCommitTask}
 									onAgentOpenPrTask={handleAgentOpenPrTask}
 									commitTaskLoadingById={commitTaskLoadingById}
@@ -1104,6 +1155,7 @@ export default function App(): ReactElement {
 									isDocumentVisible={isDocumentVisible}
 									onClineSettingsSaved={refreshRuntimeProjectConfig}
 									onTaskClineSettingsChanged={handleClineTaskSettingsChangedForTask}
+									latestTaskReadyForReview={latestTaskReadyForReview}
 								/>
 							</div>
 						) : null}

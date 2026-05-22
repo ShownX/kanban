@@ -25,6 +25,7 @@ export function BoardColumn({
 	onCancelAutomaticTaskAction,
 	onMoveToTrashTask,
 	onRestoreFromTrashTask,
+	onToggleAutoReview,
 	commitTaskLoadingById,
 	openPrTaskLoadingById,
 	moveToTrashLoadingById,
@@ -39,6 +40,10 @@ export function BoardColumn({
 	isDependencyLinking,
 	workspacePath,
 	defaultClineModelId,
+	taskRoadmapLookup,
+	onNavigateToRoadmapItem,
+	highlightCardId,
+	validationByTaskId,
 }: {
 	column: BoardColumnModel;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
@@ -55,6 +60,7 @@ export function BoardColumn({
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	onMoveToTrashTask?: (taskId: string) => void;
 	onRestoreFromTrashTask?: (taskId: string) => void;
+	onToggleAutoReview?: (taskId: string, enabled: boolean) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
 	moveToTrashLoadingById?: Record<string, boolean>;
@@ -69,10 +75,16 @@ export function BoardColumn({
 	isDependencyLinking?: boolean;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
+	taskRoadmapLookup?: Map<string, { itemId: string; title: string }>;
+	onNavigateToRoadmapItem?: (itemId: string) => void;
+	highlightCardId?: string | null;
+	validationByTaskId?: Record<string, { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean }>;
 }): React.ReactElement {
 	const canCreate = column.id === "backlog" && onCreateTask;
 	const canStartAllTasks = column.id === "backlog" && onStartAllTasks;
 	const canClearTrash = column.id === "trash" && onClearTrash;
+	const canRunInProgress = column.id === "in_progress" && onStartTask;
+	const showAutoReviewToggle = column.id === "review" && onToggleAutoReview;
 	const cardDropType = "CARD";
 	const isDropDisabled = isCardDropDisabled(column.id, activeDragSourceColumnId ?? null, {
 		activeDragTaskId,
@@ -119,6 +131,21 @@ export function BoardColumn({
 							title={column.cards.length > 0 ? "Start all backlog tasks" : "Backlog is empty"}
 						/>
 					) : null}
+					{canRunInProgress ? (
+						<Button
+							icon={<Play size={14} />}
+							variant="ghost"
+							size="sm"
+							onClick={() => {
+								for (const card of column.cards) {
+									onStartTask!(card.id);
+								}
+							}}
+							disabled={column.cards.length === 0}
+							aria-label="Run all in-progress tasks"
+							title="Resume all stopped tasks in this column"
+						/>
+					) : null}
 					{canClearTrash ? (
 						<Button
 							icon={<Trash2 size={14} />}
@@ -129,6 +156,24 @@ export function BoardColumn({
 							disabled={column.cards.length === 0}
 							aria-label="Clear done"
 							title={column.cards.length > 0 ? "Clear done items permanently" : "Done is empty"}
+						/>
+					) : null}
+					{showAutoReviewToggle ? (
+						<Button
+							icon={<Play size={14} />}
+							variant="ghost"
+							size="sm"
+							className="text-status-green"
+							onClick={() => {
+								for (const card of column.cards) {
+									if (!card.autoReviewEnabled) {
+										onToggleAutoReview!(card.id, true);
+									}
+								}
+							}}
+							disabled={column.cards.length === 0}
+							aria-label="Enable auto-review for all"
+							title="Enable auto-review (commit & done) for all review cards"
 						/>
 					) : null}
 				</div>
@@ -175,6 +220,7 @@ export function BoardColumn({
 											onStart={onStartTask}
 											onMoveToTrash={onMoveToTrashTask}
 											onRestoreFromTrash={onRestoreFromTrashTask}
+											onToggleAutoReview={onToggleAutoReview}
 											onCommit={onCommitTask}
 											onOpenPr={onOpenPrTask}
 											onCancelAutomaticAction={onCancelAutomaticTaskAction}
@@ -188,6 +234,14 @@ export function BoardColumn({
 											isDependencyLinking={isDependencyLinking}
 											workspacePath={workspacePath}
 											defaultClineModelId={defaultClineModelId}
+											roadmapItemTitle={taskRoadmapLookup?.get(card.id)?.title}
+											onNavigateToRoadmapItem={
+												taskRoadmapLookup?.has(card.id) && onNavigateToRoadmapItem
+													? () => onNavigateToRoadmapItem(taskRoadmapLookup.get(card.id)!.itemId)
+													: undefined
+											}
+											highlighted={highlightCardId === card.id}
+											validation={validationByTaskId?.[card.id]}
 											onSaveTitle={onSaveTitle}
 											onClick={() => {
 												if (column.id === "backlog") {

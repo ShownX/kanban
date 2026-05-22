@@ -11,12 +11,18 @@ import {
 	FileText,
 	FlaskConical,
 	HelpCircle,
+	Play,
+	RotateCcw,
 	Shield,
 	Terminal,
+	ThumbsDown,
+	ThumbsUp,
 	X,
 	XCircle,
 } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import { showAppToast } from "@/components/app-toaster";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -97,6 +103,16 @@ type ExperimentLog = ExperimentLogsResponse[number];
 interface DeliverableValidationPanelProps {
 	taskId: string;
 	workspaceId: string | null;
+	/** Required to trigger a manual validation run; omitted for read-only views. */
+	roadmapItemId?: string;
+	specSlug?: string;
+	ownedPaths?: string[];
+	/**
+	 * Monotonically-increasing token. Bumping it forces the panel to refetch.
+	 * Wire this to a runtime-state event (e.g. task-ready-for-review) so the
+	 * panel updates live as the agent writes files.
+	 */
+	refreshToken?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,9 +124,14 @@ interface DeliverableValidationData {
 	validationReport: ValidationReportResponse | null;
 	experimentLogs: ExperimentLogsResponse;
 	isLoading: boolean;
+	refetch: () => void;
 }
 
-function useDeliverableValidation(taskId: string, workspaceId: string | null): DeliverableValidationData {
+function useDeliverableValidation(
+	taskId: string,
+	workspaceId: string | null,
+	refreshToken: number | undefined,
+): DeliverableValidationData {
 	const [deliverable, setDeliverable] = useState<DeliverableResponse | null>(null);
 	const [validationReport, setValidationReport] = useState<ValidationReportResponse | null>(null);
 	const [experimentLogs, setExperimentLogs] = useState<ExperimentLogsResponse>([]);
@@ -169,7 +190,17 @@ function useDeliverableValidation(taskId: string, workspaceId: string | null): D
 		};
 	}, [fetchData]);
 
-	return { deliverable, validationReport, experimentLogs, isLoading };
+	// Refetch in place (no spinner flicker) when the parent bumps refreshToken.
+	useEffect(() => {
+		if (refreshToken == null) return;
+		isMountedRef.current = true;
+		fetchData();
+		return () => {
+			isMountedRef.current = false;
+		};
+	}, [refreshToken, fetchData]);
+
+	return { deliverable, validationReport, experimentLogs, isLoading, refetch: fetchData };
 }
 
 // ---------------------------------------------------------------------------
@@ -335,11 +366,20 @@ function WorkSummarySection({
 }
 
 function DeliverableSection({ parsed }: { parsed: DeliverableParsed }): ReactElement {
+	const completedRelative = formatRelativeTime(parsed.completedAt);
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
 				<FileText size={13} />
 				Deliverable
+				{completedRelative ? (
+					<span
+						className="ml-auto text-[10px] font-normal normal-case tracking-normal text-text-tertiary"
+						title={parsed.completedAt}
+					>
+						{completedRelative}
+					</span>
+				) : null}
 			</div>
 
 			{/* Summary */}
@@ -459,13 +499,31 @@ function ValidatorWorkSection({ work }: { work: ValidationWorkSummaryView }): Re
 	);
 }
 
-function ValidationReportSection({ report }: { report: ValidationReport }): ReactElement {
+function ValidationReportSection({
+	report,
+	onReview,
+	reviewState,
+}: {
+	report: ValidationReport;
+	onReview?: (outcome: "accepted" | "rejected" | "escalated") => void;
+	reviewState: { pending: "accepted" | "rejected" | "escalated" | null };
+}): ReactElement {
+	const validatedRelative = formatRelativeTime(report.validatedAt);
+	const canReview = onReview != null && report.result !== "pass";
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
 				<Shield size={13} />
 				Validation
 				<ResultBadge result={report.result} />
+				{validatedRelative ? (
+					<span
+						className="ml-auto text-[10px] font-normal normal-case tracking-normal text-text-tertiary"
+						title={report.validatedAt}
+					>
+						{validatedRelative}
+					</span>
+				) : null}
 			</div>
 
 			{/* Validator's own work narrative */}
@@ -490,6 +548,39 @@ function ValidationReportSection({ report }: { report: ValidationReport }): Reac
 
 			{/* Summary */}
 			{report.summary ? <div className="text-xs text-text-tertiary leading-relaxed">{report.summary}</div> : null}
+
+			{/* Review actions — only meaningful when the report needs PM judgment */}
+			{canReview ? (
+				<div className="flex items-center gap-2 pt-1">
+					<Button
+						variant="primary"
+						size="sm"
+						icon={reviewState.pending === "accepted" ? <Spinner size={12} /> : <ThumbsUp size={14} />}
+						disabled={reviewState.pending != null}
+						onClick={() => onReview?.("accepted")}
+					>
+						Accept
+					</Button>
+					<Button
+						variant="danger"
+						size="sm"
+						icon={reviewState.pending === "rejected" ? <Spinner size={12} /> : <ThumbsDown size={14} />}
+						disabled={reviewState.pending != null}
+						onClick={() => onReview?.("rejected")}
+					>
+						Reject
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={reviewState.pending === "escalated" ? <Spinner size={12} /> : <AlertTriangle size={14} />}
+						disabled={reviewState.pending != null}
+						onClick={() => onReview?.("escalated")}
+					>
+						Escalate
+					</Button>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -570,6 +661,23 @@ function formatBytes(n: number): string {
 	return `${(n / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+function formatRelativeTime(value: string | undefined): string | null {
+	if (!value) return null;
+	const ts = Date.parse(value);
+	if (Number.isNaN(ts)) return null;
+	const diffMs = Date.now() - ts;
+	if (diffMs < 0) return new Date(ts).toLocaleString();
+	const seconds = Math.floor(diffMs / 1000);
+	if (seconds < 60) return seconds <= 1 ? "just now" : `${seconds}s ago`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	if (days < 7) return `${days}d ago`;
+	return new Date(ts).toLocaleDateString();
+}
+
 function isDeliverableParsed(value: unknown): value is DeliverableParsed {
 	return value !== null && typeof value === "object" && "taskId" in value && "summary" in value;
 }
@@ -586,11 +694,85 @@ function hasSpecStaleness(report: ValidationReport): boolean {
 // Main component
 // ---------------------------------------------------------------------------
 
+type ReviewOutcome = "accepted" | "rejected" | "escalated";
+
+const REVIEW_OUTCOME_LABEL: Record<ReviewOutcome, string> = {
+	accepted: "Validation accepted.",
+	rejected: "Validation rejected.",
+	escalated: "Validation escalated for review.",
+};
+
 export function DeliverableValidationPanel({
 	taskId,
 	workspaceId,
+	roadmapItemId,
+	specSlug,
+	ownedPaths,
+	refreshToken,
 }: DeliverableValidationPanelProps): ReactElement | null {
-	const { deliverable, validationReport, experimentLogs, isLoading } = useDeliverableValidation(taskId, workspaceId);
+	const { deliverable, validationReport, experimentLogs, isLoading, refetch } = useDeliverableValidation(
+		taskId,
+		workspaceId,
+		refreshToken,
+	);
+	const [pendingReview, setPendingReview] = useState<ReviewOutcome | null>(null);
+	const [isValidating, setIsValidating] = useState(false);
+
+	const parsed = deliverable?.parsed;
+	const report = validationReport?.report;
+
+	const hasParsedDeliverable = isDeliverableParsed(parsed);
+	const hasReport = isValidationReport(report);
+	const hasExperiments = experimentLogs.length > 0;
+
+	const canRunValidation =
+		!isValidating &&
+		workspaceId != null &&
+		hasParsedDeliverable &&
+		!hasReport &&
+		roadmapItemId != null &&
+		specSlug != null &&
+		ownedPaths != null;
+
+	const handleReview = useCallback(
+		async (outcome: ReviewOutcome) => {
+			if (!workspaceId || !roadmapItemId) return;
+			setPendingReview(outcome);
+			try {
+				const trpc = getRuntimeTrpcClient(workspaceId);
+				await trpc.runtime.reviewValidation.mutate({ taskId, roadmapItemId, outcome });
+				showAppToast({ intent: "success", message: REVIEW_OUTCOME_LABEL[outcome], timeout: 3000 });
+				refetch();
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to record review.";
+				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 6000 });
+			} finally {
+				setPendingReview(null);
+			}
+		},
+		[workspaceId, roadmapItemId, taskId, refetch],
+	);
+
+	const handleRunValidation = useCallback(async () => {
+		if (!workspaceId || !roadmapItemId || !specSlug || !ownedPaths) return;
+		setIsValidating(true);
+		try {
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			await trpc.runtime.validateDeliverable.mutate({
+				taskId,
+				specSlug,
+				roadmapItemId,
+				ownedPaths,
+			});
+			showAppToast({ intent: "success", message: "Validation report generated.", timeout: 3000 });
+			refetch();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Failed to run validation.";
+			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 6000 });
+		} finally {
+			setIsValidating(false);
+		}
+	}, [workspaceId, roadmapItemId, specSlug, ownedPaths, taskId, refetch]);
 
 	if (isLoading) {
 		return (
@@ -603,13 +785,6 @@ export function DeliverableValidationPanel({
 		);
 	}
 
-	const parsed = deliverable?.parsed;
-	const report = validationReport?.report;
-
-	const hasParsedDeliverable = isDeliverableParsed(parsed);
-	const hasReport = isValidationReport(report);
-	const hasExperiments = experimentLogs.length > 0;
-
 	if (!hasParsedDeliverable && !hasReport && !hasExperiments) {
 		return null;
 	}
@@ -620,7 +795,37 @@ export function DeliverableValidationPanel({
 		<div className="flex flex-col gap-4 border-t border-border px-3 py-3">
 			{showStalenessWarning ? <StalenessWarning /> : null}
 			{hasParsedDeliverable ? <DeliverableSection parsed={parsed} /> : null}
-			{hasReport ? <ValidationReportSection report={report} /> : null}
+			{hasReport ? (
+				<ValidationReportSection
+					report={report}
+					onReview={roadmapItemId ? handleReview : undefined}
+					reviewState={{ pending: pendingReview }}
+				/>
+			) : hasParsedDeliverable && canRunValidation ? (
+				<div className="flex items-center gap-2">
+					<Button
+						variant="primary"
+						size="sm"
+						icon={isValidating ? <Spinner size={12} /> : <Play size={14} />}
+						disabled={!canRunValidation}
+						onClick={handleRunValidation}
+					>
+						Run validation
+					</Button>
+					<span className="text-xs text-text-tertiary">No validation report yet.</span>
+				</div>
+			) : null}
+			{hasReport && !pendingReview ? (
+				<button
+					type="button"
+					onClick={handleRunValidation}
+					disabled={!canRunValidation}
+					className="inline-flex items-center gap-1 self-start text-[11px] text-text-tertiary hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					{isValidating ? <Spinner size={11} /> : <RotateCcw size={11} />}
+					Re-run validation
+				</button>
+			) : null}
 			{hasExperiments ? <ExperimentLogsSection logs={experimentLogs} /> : null}
 		</div>
 	);

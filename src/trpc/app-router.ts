@@ -871,7 +871,7 @@ export const runtimeAppRouter = t.router({
 					z.object({
 						roadmapItemId: z.string(),
 						taskId: z.string(),
-						reportResult: z.string(),
+						reportResult: z.enum(["pass", "fail", "needs_review"]),
 						validatedAt: z.string(),
 					}),
 				),

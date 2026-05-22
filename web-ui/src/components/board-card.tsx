@@ -2,7 +2,20 @@ import { Draggable } from "@hello-pangea/dnd";
 import { getRuntimeAgentCatalogEntry } from "@runtime-agent-catalog";
 import { formatClineToolCallLabel } from "@runtime-cline-tool-call-display";
 import { buildTaskWorktreeDisplayPath } from "@runtime-task-worktree-path";
-import { AlertCircle, AlertTriangle, Bot, GitBranch, Pencil, Play, RotateCcw, Trash2 } from "lucide-react";
+import {
+	AlertCircle,
+	AlertTriangle,
+	Bot,
+	CheckCircle2,
+	GitBranch,
+	HelpCircle,
+	Map as MapIcon,
+	Pencil,
+	Play,
+	RotateCcw,
+	Trash2,
+	XCircle,
+} from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -210,6 +223,48 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 	return null;
 }
 
+const VALIDATION_BADGE_CONFIG: Record<
+	"pass" | "fail" | "needs_review",
+	{ icon: typeof CheckCircle2; label: string; tooltip: string; className: string }
+> = {
+	pass: {
+		icon: CheckCircle2,
+		label: "Pass",
+		tooltip: "Validator passed this deliverable",
+		className: "bg-status-green/15 text-status-green",
+	},
+	fail: {
+		icon: XCircle,
+		label: "Fail",
+		tooltip: "Validator failed this deliverable",
+		className: "bg-status-red/15 text-status-red",
+	},
+	needs_review: {
+		icon: HelpCircle,
+		label: "Review",
+		tooltip: "Validator flagged this deliverable for PM review",
+		className: "bg-status-orange/15 text-status-orange",
+	},
+};
+
+function ValidationBadge({ result }: { result: "pass" | "fail" | "needs_review" }): React.ReactElement {
+	const config = VALIDATION_BADGE_CONFIG[result];
+	const Icon = config.icon;
+	return (
+		<Tooltip content={config.tooltip}>
+			<span
+				className={cn(
+					"inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+					config.className,
+				)}
+			>
+				<Icon size={11} />
+				{config.label}
+			</span>
+		</Tooltip>
+	);
+}
+
 export function BoardCard({
 	card,
 	index,
@@ -220,6 +275,7 @@ export function BoardCard({
 	onStart,
 	onMoveToTrash,
 	onRestoreFromTrash,
+	onToggleAutoReview,
 	onSaveTitle,
 	onCommit,
 	onOpenPr,
@@ -234,6 +290,10 @@ export function BoardCard({
 	isDependencyLinking = false,
 	workspacePath,
 	defaultClineModelId = null,
+	roadmapItemTitle,
+	onNavigateToRoadmapItem,
+	highlighted = false,
+	validation,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -244,6 +304,7 @@ export function BoardCard({
 	onStart?: (taskId: string) => void;
 	onMoveToTrash?: (taskId: string) => void;
 	onRestoreFromTrash?: (taskId: string) => void;
+	onToggleAutoReview?: (taskId: string, enabled: boolean) => void;
 	onSaveTitle?: (taskId: string, title: string) => void;
 	onCommit?: (taskId: string) => void;
 	onOpenPr?: (taskId: string) => void;
@@ -258,10 +319,19 @@ export function BoardCard({
 	isDependencyLinking?: boolean;
 	workspacePath?: string | null;
 	defaultClineModelId?: string | null;
+	/** Title of the linked roadmap item, if any. */
+	roadmapItemTitle?: string;
+	/** Callback to navigate to the linked roadmap item in the roadmap panel. */
+	onNavigateToRoadmapItem?: () => void;
+	/** When true, the card should scroll into view and show a highlight pulse. */
+	highlighted?: boolean;
+	/** Pending validation entry for this task, used to render a status badge. */
+	validation?: { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean };
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
 	const [draftTitle, setDraftTitle] = useState(card.title);
+	const cardShellRef = useRef<HTMLDivElement | null>(null);
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
 	const titleEditCancelledRef = useRef(false);
 	const [descriptionContainerRef, descriptionRect] = useMeasure<HTMLDivElement>();
@@ -310,6 +380,11 @@ export function BoardCard({
 	useEffect(() => {
 		setIsDescriptionExpanded(false);
 	}, [card.id, displayDescription]);
+
+	useEffect(() => {
+		if (!highlighted || !cardShellRef.current) return;
+		cardShellRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+	}, [highlighted]);
 
 	useEffect(() => {
 		setDraftTitle(card.title);
@@ -405,7 +480,10 @@ export function BoardCard({
 			if (sessionSummary?.state === "failed") {
 				return <AlertCircle size={12} className="text-status-red" />;
 			}
-			return <Spinner size={12} />;
+			if (sessionSummary?.state === "running") {
+				return <Spinner size={12} />;
+			}
+			return null;
 		}
 		return null;
 	};
@@ -475,13 +553,17 @@ export function BoardCard({
 				const isDragging = snapshot.isDragging;
 				const draggableContent = (
 					<div
-						ref={provided.innerRef}
+						ref={(node) => {
+							provided.innerRef(node);
+							cardShellRef.current = node;
+						}}
 						{...provided.draggableProps}
 						{...provided.dragHandleProps}
 						className="kb-board-card-shell"
 						data-task-id={card.id}
 						data-column-id={columnId}
 						data-selected={selected}
+						data-highlight={highlighted || undefined}
 						onMouseDownCapture={(event) => {
 							if (!isCardInteractive) {
 								return;
@@ -551,6 +633,9 @@ export function BoardCard({
 						>
 							<div className="flex items-center gap-2" style={{ minHeight: 24 }}>
 								{statusMarker ? <div className="inline-flex items-center">{statusMarker}</div> : null}
+								{validation && columnId === "review" ? (
+									<ValidationBadge result={validation.reportResult} />
+								) : null}
 								<div className="flex-1 min-w-0">
 									{isEditingTitle ? (
 										<input
@@ -603,17 +688,58 @@ export function BoardCard({
 									)}
 								</div>
 								{columnId === "backlog" ? (
-									<Button
-										icon={<Play size={14} />}
-										variant="ghost"
-										size="sm"
-										aria-label="Start task"
-										onMouseDown={stopEvent}
-										onClick={(event) => {
-											stopEvent(event);
-											onStart?.(card.id);
-										}}
-									/>
+									<div className="flex items-center gap-0.5">
+										<Button
+											icon={<Trash2 size={13} />}
+											variant="ghost"
+											size="sm"
+											disabled={isMoveToTrashLoading}
+											aria-label="Delete task"
+											onMouseDown={stopEvent}
+											onClick={(event) => {
+												stopEvent(event);
+												onMoveToTrash?.(card.id);
+											}}
+										/>
+										<Button
+											icon={<Play size={14} />}
+											variant="ghost"
+											size="sm"
+											aria-label="Start task"
+											onMouseDown={stopEvent}
+											onClick={(event) => {
+												stopEvent(event);
+												onStart?.(card.id);
+											}}
+										/>
+									</div>
+								) : columnId === "in_progress" ? (
+									<div className="flex items-center gap-0.5">
+										<Button
+											icon={isMoveToTrashLoading ? <Spinner size={13} /> : <Trash2 size={13} />}
+											variant="ghost"
+											size="sm"
+											disabled={isMoveToTrashLoading}
+											aria-label="Delete task"
+											onMouseDown={stopEvent}
+											onClick={(event) => {
+												stopEvent(event);
+												onMoveToTrash?.(card.id);
+											}}
+										/>
+										<Button
+											icon={<Play size={13} />}
+											variant="ghost"
+											size="sm"
+											disabled={sessionSummary?.state === "running"}
+											aria-label="Resume task"
+											onMouseDown={stopEvent}
+											onClick={(event) => {
+												stopEvent(event);
+												onStart?.(card.id);
+											}}
+										/>
+									</div>
 								) : columnId === "review" ? (
 									<Button
 										icon={isMoveToTrashLoading ? <Spinner size={13} /> : <Trash2 size={13} />}
@@ -723,6 +849,28 @@ export function BoardCard({
 										<Bot size={12} className="shrink-0" />
 										<span className="truncate">{taskAgentSettingsLabel}</span>
 									</span>
+								</div>
+							) : null}
+							{roadmapItemTitle ? (
+								<div className="mt-1">
+									<button
+										type="button"
+										className={cn(
+											"inline-flex max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] leading-tight cursor-pointer",
+											isTrashCard
+												? "border-border text-text-tertiary bg-surface-1"
+												: "border-accent/25 bg-accent/10 text-accent hover:bg-accent/20",
+										)}
+										title={`Roadmap: ${roadmapItemTitle}`}
+										onMouseDown={stopEvent}
+										onClick={(event) => {
+											stopEvent(event);
+											onNavigateToRoadmapItem?.();
+										}}
+									>
+										<MapIcon size={10} className="shrink-0" />
+										<span className="truncate">{roadmapItemTitle}</span>
+									</button>
 								</div>
 							) : null}
 							{sessionActivity ? (

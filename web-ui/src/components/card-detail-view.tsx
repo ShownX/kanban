@@ -6,6 +6,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
+import { DeliverableValidationPanel } from "@/components/detail-panels/deliverable-validation-panel";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,7 @@ import type {
 	RuntimeAgentId,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
+	RuntimeStateStreamTaskReadyForReviewMessage,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
@@ -329,6 +331,8 @@ export function CardDetailView({
 	onSaveTaskTitle,
 	onCommitTask,
 	onOpenPrTask,
+	onAiReviewTask,
+	onToggleAutoReview,
 	onAgentCommitTask,
 	onAgentOpenPrTask,
 	onMoveReviewCardToTrash,
@@ -336,6 +340,7 @@ export function CardDetailView({
 	onCancelAutomaticTaskAction,
 	commitTaskLoadingById,
 	openPrTaskLoadingById,
+	aiReviewTaskLoadingById,
 	agentCommitTaskLoadingById,
 	agentOpenPrTaskLoadingById,
 	moveToTrashLoadingById,
@@ -366,6 +371,7 @@ export function CardDetailView({
 	isDocumentVisible = true,
 	onClineSettingsSaved,
 	onTaskClineSettingsChanged,
+	latestTaskReadyForReview = null,
 }: {
 	selection: CardSelection;
 	currentProjectId: string | null;
@@ -387,6 +393,8 @@ export function CardDetailView({
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
+	onAiReviewTask?: (taskId: string) => void;
+	onToggleAutoReview?: (taskId: string, enabled: boolean) => void;
 	onAgentCommitTask?: (taskId: string) => void;
 	onAgentOpenPrTask?: (taskId: string) => void;
 	onMoveReviewCardToTrash?: (taskId: string) => void;
@@ -394,6 +402,7 @@ export function CardDetailView({
 	onCancelAutomaticTaskAction?: (taskId: string) => void;
 	commitTaskLoadingById?: Record<string, boolean>;
 	openPrTaskLoadingById?: Record<string, boolean>;
+	aiReviewTaskLoadingById?: Record<string, boolean>;
 	agentCommitTaskLoadingById?: Record<string, boolean>;
 	agentOpenPrTaskLoadingById?: Record<string, boolean>;
 	moveToTrashLoadingById?: Record<string, boolean>;
@@ -432,6 +441,12 @@ export function CardDetailView({
 		modelId: string;
 		reasoningEffort: RuntimeClineReasoningEffort | "";
 	}) => void;
+	/**
+	 * Latest "task ready for review" event from the runtime stream. Used to
+	 * trigger a refetch in the deliverable-validation panel so it picks up
+	 * deliverable.md and validation-report.md as soon as the agent writes them.
+	 */
+	latestTaskReadyForReview?: RuntimeStateStreamTaskReadyForReviewMessage | null;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
@@ -512,6 +527,11 @@ export function CardDetailView({
 	const detailDiffFileTreePanelFlex = `0 0 ${detailDiffFileTreePanelPercent}`;
 	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
+	const showDeliverableValidation = selection.column.id === "review" && !!selection.card.roadmapItemId;
+	const deliverablePanelRefreshToken =
+		latestTaskReadyForReview && latestTaskReadyForReview.taskId === selection.card.id
+			? latestTaskReadyForReview.triggeredAt
+			: undefined;
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
@@ -652,8 +672,10 @@ export function CardDetailView({
 			incomingMessage={latestClineChatMessage}
 			onCommit={onAgentCommitTask ? () => onAgentCommitTask(selection.card.id) : undefined}
 			onOpenPr={onAgentOpenPrTask ? () => onAgentOpenPrTask(selection.card.id) : undefined}
+			onAiReview={onAiReviewTask ? () => onAiReviewTask(selection.card.id) : undefined}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
 			isOpenPrLoading={agentOpenPrTaskLoadingById?.[selection.card.id] ?? false}
+			isAiReviewLoading={aiReviewTaskLoadingById?.[selection.card.id] ?? false}
 			showMoveToTrash={showMoveToTrashActions}
 			onMoveToTrash={onMoveToTrash}
 			isMoveToTrashLoading={isMoveToTrashLoading}
@@ -677,8 +699,14 @@ export function CardDetailView({
 			onSummary={onSessionSummary}
 			onCommit={onAgentCommitTask ? () => onAgentCommitTask(selection.card.id) : undefined}
 			onOpenPr={onAgentOpenPrTask ? () => onAgentOpenPrTask(selection.card.id) : undefined}
+			onAiReview={onAiReviewTask ? () => onAiReviewTask(selection.card.id) : undefined}
+			onToggleAutoReview={
+				onToggleAutoReview ? (currentEnabled) => onToggleAutoReview(selection.card.id, !currentEnabled) : undefined
+			}
+			autoReviewEnabled={selection.card.autoReviewEnabled ?? false}
 			isCommitLoading={agentCommitTaskLoadingById?.[selection.card.id] ?? false}
 			isOpenPrLoading={agentOpenPrTaskLoadingById?.[selection.card.id] ?? false}
+			isAiReviewLoading={aiReviewTaskLoadingById?.[selection.card.id] ?? false}
 			showSessionToolbar={false}
 			autoFocus
 			showMoveToTrash={showMoveToTrashActions}
@@ -753,7 +781,7 @@ export function CardDetailView({
 						</div>
 						{/* Files panel */}
 						<div
-							className="min-h-0 min-w-0 flex-1 flex-col"
+							className="min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
 							style={{ display: mobileTab === "files" ? "flex" : "none" }}
 						>
 							<FileTreePanel
@@ -765,6 +793,16 @@ export function CardDetailView({
 								}}
 								panelFlex="1 1 0"
 							/>
+							{showDeliverableValidation ? (
+								<DeliverableValidationPanel
+									taskId={selection.card.id}
+									workspaceId={currentProjectId}
+									roadmapItemId={selection.card.roadmapItemId}
+									specSlug={selection.card.specSlug}
+									ownedPaths={selection.card.ownedPaths}
+									refreshToken={deliverablePanelRefreshToken}
+								/>
+							) : null}
 						</div>
 					</div>
 					{/* Terminal panel — bottom overlay */}
@@ -904,7 +942,7 @@ export function CardDetailView({
 												className="z-10"
 											/>
 											<div
-												className="flex min-h-0 min-w-0"
+												className="flex min-h-0 min-w-0 flex-col overflow-y-auto"
 												style={{ flex: `0 0 ${detailDiffFileTreePanelPercent}` }}
 											>
 												<FileTreePanel
@@ -913,6 +951,16 @@ export function CardDetailView({
 													onSelectPath={setSelectedPath}
 													panelFlex="1 1 0"
 												/>
+												{showDeliverableValidation ? (
+													<DeliverableValidationPanel
+														taskId={selection.card.id}
+														workspaceId={currentProjectId}
+														roadmapItemId={selection.card.roadmapItemId}
+														specSlug={selection.card.specSlug}
+														ownedPaths={selection.card.ownedPaths}
+														refreshToken={deliverablePanelRefreshToken}
+													/>
+												) : null}
 											</div>
 										</div>
 									)}

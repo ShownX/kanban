@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { z } from "zod";
@@ -32,6 +32,16 @@ export async function writeReviewFeedback(
 	await mkdir(dirname(filePath), { recursive: true });
 	const content = serializeReviewFeedback(taskId, feedback);
 	await writeFile(filePath, content, "utf8");
+}
+
+/**
+ * Remove the review-feedback file. No-op when the file doesn't exist.
+ * Called when a fresh validation runs (so stale feedback doesn't persist) and
+ * when the PM explicitly marks feedback as resolved.
+ */
+export async function clearReviewFeedback(workspacePath: string, taskId: string): Promise<void> {
+	const filePath = getReviewFeedbackPath(workspacePath, taskId);
+	await rm(filePath, { force: true });
 }
 
 export async function readReviewFeedback(

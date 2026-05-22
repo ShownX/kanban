@@ -806,6 +806,7 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				const { validateDeliverable, writeValidationReport } = await import("../workspace/validator.js");
 				const { recordValidationResult } = await import("../workspace/validation-lifecycle.js");
+				const { clearReviewFeedback } = await import("../workspace/review-feedback-file.js");
 				const report = await validateDeliverable({
 					workspacePath: ctx.workspaceScope.workspacePath,
 					taskId: input.taskId,
@@ -823,6 +824,10 @@ export const runtimeAppRouter = t.router({
 					report.result,
 					report.validatedAt,
 				);
+				// A fresh validation means any prior reviewer feedback has been addressed
+				// (or at least re-evaluated); drop the stale feedback file so the panel
+				// doesn't show an outdated banner.
+				await clearReviewFeedback(ctx.workspaceScope.workspacePath, input.taskId);
 				return report;
 			}),
 		readValidationReport: workspaceProcedure
@@ -838,6 +843,13 @@ export const runtimeAppRouter = t.router({
 			.query(async ({ ctx, input }) => {
 				const { readExperimentLogs } = await import("../workspace/experiment-log-file.js");
 				return await readExperimentLogs(ctx.workspaceScope.workspacePath, input.taskId);
+			}),
+		clearReviewFeedback: workspaceProcedure
+			.input(z.object({ taskId: z.string() }))
+			.output(z.void())
+			.mutation(async ({ ctx, input }) => {
+				const { clearReviewFeedback } = await import("../workspace/review-feedback-file.js");
+				await clearReviewFeedback(ctx.workspaceScope.workspacePath, input.taskId);
 			}),
 		readReviewFeedback: workspaceProcedure
 			.input(z.object({ taskId: z.string() }))

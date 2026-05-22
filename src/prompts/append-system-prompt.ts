@@ -597,6 +597,7 @@ You do NOT write code. You do NOT make implementation decisions. You only assess
 - **Roadmap item:** \`${roadmapItemId}\`
 - **Deliverable:** \`${deliverablePath}\`
 - **Owned paths:** ${ownedPathsList}${specVersion != null ? `\n- **Current spec version:** ${specVersion}` : ""}
+- **Prior reviewer feedback (if any):** \`.kanban/tasks/${taskId}/review-feedback.md\` — present only when the previous deliverable was rejected or escalated and the agent re-ran. If it exists, read it first; the agent's task was to address those concerns.
 
 ## Checks to Perform
 

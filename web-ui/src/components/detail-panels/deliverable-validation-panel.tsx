@@ -992,6 +992,7 @@ export function DeliverableValidationPanel({
 	const [pendingReview, setPendingReview] = useState<ReviewOutcome | null>(null);
 	const [isValidating, setIsValidating] = useState(false);
 	const [noteDialogOutcome, setNoteDialogOutcome] = useState<"rejected" | "escalated" | null>(null);
+	const [isResolvingFeedback, setIsResolvingFeedback] = useState(false);
 
 	const parsed = deliverable?.parsed;
 	const report = validationReport?.report;
@@ -1065,6 +1066,21 @@ export function DeliverableValidationPanel({
 		}
 	}, [workspaceId, roadmapItemId, specSlug, ownedPaths, taskId, refetch]);
 
+	const handleMarkFeedbackResolved = useCallback(async () => {
+		if (!workspaceId) return;
+		setIsResolvingFeedback(true);
+		try {
+			const trpc = getRuntimeTrpcClient(workspaceId);
+			await trpc.runtime.clearReviewFeedback.mutate({ taskId });
+			refetch();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Failed to clear feedback.";
+			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 4000 });
+		} finally {
+			setIsResolvingFeedback(false);
+		}
+	}, [workspaceId, taskId, refetch]);
+
 	if (isLoading) {
 		return (
 			<div className="flex flex-col gap-3 border-t border-border px-3 py-3">
@@ -1087,7 +1103,13 @@ export function DeliverableValidationPanel({
 
 	return (
 		<div className="flex flex-col gap-4 border-t border-border px-3 py-3">
-			{priorFeedback ? <PriorFeedbackBanner feedback={priorFeedback} /> : null}
+			{priorFeedback ? (
+				<PriorFeedbackBanner
+					feedback={priorFeedback}
+					onMarkResolved={handleMarkFeedbackResolved}
+					isResolving={isResolvingFeedback}
+				/>
+			) : null}
 			{showStalenessWarning ? <StalenessWarning /> : null}
 			{hasParsedDeliverable ? (
 				<DeliverableSection parsed={parsed} rawMarkdown={deliverableMarkdown} />
@@ -1148,18 +1170,36 @@ export function DeliverableValidationPanel({
 
 function PriorFeedbackBanner({
 	feedback,
+	onMarkResolved,
+	isResolving,
 }: {
 	feedback: NonNullable<ReviewFeedbackResponse["feedback"]>;
+	onMarkResolved?: () => void;
+	isResolving: boolean;
 }): ReactElement {
 	const reviewedRelative = formatRelativeTime(feedback.reviewedAt);
 	return (
 		<div className="flex items-start gap-2 rounded-md border border-status-orange/30 bg-status-orange/10 px-3 py-2 text-xs text-status-orange">
 			<AlertTriangle size={14} className="mt-0.5 shrink-0" />
 			<div className="min-w-0 flex-1">
-				<div className="font-medium">
-					Previously {feedback.outcome === "rejected" ? "rejected" : "escalated"}
-					{reviewedRelative ? (
-						<span className="ml-1 font-normal text-text-tertiary">{reviewedRelative}</span>
+				<div className="flex items-start gap-2">
+					<div className="min-w-0 flex-1 font-medium">
+						Previously {feedback.outcome === "rejected" ? "rejected" : "escalated"}
+						{reviewedRelative ? (
+							<span className="ml-1 font-normal text-text-tertiary">{reviewedRelative}</span>
+						) : null}
+					</div>
+					{onMarkResolved ? (
+						<button
+							type="button"
+							onClick={onMarkResolved}
+							disabled={isResolving}
+							className="inline-flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium text-status-orange hover:bg-status-orange/15 disabled:opacity-40"
+							title="Delete review-feedback.md"
+						>
+							{isResolving ? <Spinner size={10} /> : <Check size={11} />}
+							Mark resolved
+						</button>
 					) : null}
 				</div>
 				{feedback.note ? (
@@ -1195,6 +1235,19 @@ function ReviewNoteDialog({
 		? "Tell the task agent what to fix. The note will be saved to review-feedback.md so the agent can pick it up on resume."
 		: "Optionally explain what the human reviewer should look at.";
 
+	const canSubmit = !isRejected || note.trim().length > 0;
+	const handleSubmit = () => {
+		if (!canSubmit) return;
+		onSubmit(note.trim() || undefined);
+	};
+
+	const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+			event.preventDefault();
+			handleSubmit();
+		}
+	};
+
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()} contentClassName="max-w-md">
 			<DialogHeader title={title} icon={isRejected ? <ThumbsDown size={14} /> : <AlertTriangle size={14} />} />
@@ -1203,22 +1256,22 @@ function ReviewNoteDialog({
 				<textarea
 					value={note}
 					onChange={(event) => setNote(event.currentTarget.value)}
+					onKeyDown={handleKeyDown}
 					placeholder={isRejected ? "What should the agent change?" : "Optional note for the human reviewer"}
 					rows={6}
 					className="w-full resize-vertical rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
 					autoFocus
 				/>
+				<p className="mt-1 text-[10px] text-text-tertiary">
+					Press <kbd className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono">⌘↵</kbd> /{" "}
+					<kbd className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono">Ctrl+↵</kbd> to submit.
+				</p>
 			</DialogBody>
 			<DialogFooter>
 				<Button variant="ghost" size="sm" onClick={onClose}>
 					Cancel
 				</Button>
-				<Button
-					variant={isRejected ? "danger" : "default"}
-					size="sm"
-					disabled={isRejected && note.trim().length === 0}
-					onClick={() => onSubmit(note.trim() || undefined)}
-				>
+				<Button variant={isRejected ? "danger" : "default"} size="sm" disabled={!canSubmit} onClick={handleSubmit}>
 					{isRejected ? "Reject" : "Escalate"}
 				</Button>
 			</DialogFooter>

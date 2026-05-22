@@ -32,6 +32,26 @@ export const deliverableRequirementCheckSchema = z.object({
 });
 export type DeliverableRequirementCheck = z.infer<typeof deliverableRequirementCheckSchema>;
 
+/**
+ * A single job/work item performed by the execution agent. Captures what the
+ * agent actually did (not just the spec requirements). Surfaces in the
+ * deliverable-validation panel so reviewers can see the trail of work.
+ */
+export const deliverableJobSchema = z.object({
+	title: z.string(),
+	status: z.enum(["done", "partial", "skipped", "failed"]).default("done"),
+	detail: z.string().optional(),
+});
+export type DeliverableJob = z.infer<typeof deliverableJobSchema>;
+
+export const deliverableWorkSummarySchema = z.object({
+	jobs: z.array(deliverableJobSchema).default([]),
+	commands: z.array(z.string()).default([]),
+	durationMs: z.number().optional(),
+	notes: z.string().optional(),
+});
+export type DeliverableWorkSummary = z.infer<typeof deliverableWorkSummarySchema>;
+
 export const deliverableSchema = z.object({
 	taskId: z.string(),
 	roadmapItemId: z.string().optional(),
@@ -39,6 +59,7 @@ export const deliverableSchema = z.object({
 	agent: z.string().optional(),
 	completedAt: z.string().optional(),
 	summary: z.string(),
+	workSummary: deliverableWorkSummarySchema.optional(),
 	requirementsCheck: z.array(deliverableRequirementCheckSchema).default([]),
 	changedFiles: z.array(z.string()).default([]),
 	openQuestions: z.array(z.string()).default([]),
@@ -79,6 +100,11 @@ export function parseDeliverableMd(content: string, taskId: string): Deliverable
 	const requirementsCheck: DeliverableRequirementCheck[] = [];
 	const changedFiles: string[] = [];
 	const openQuestions: string[] = [];
+	const jobs: DeliverableJob[] = [];
+	const commands: string[] = [];
+	let workNotes = "";
+	let workDurationMs: number | undefined;
+	let sawWorkSection = false;
 
 	const lines = content.split("\n");
 	let currentSection = "none";
@@ -105,12 +131,28 @@ export function parseDeliverableMd(content: string, taskId: string): Deliverable
 			completedAt = trimmed.replace(/^\*\*Completed:\*\*\s*/, "").trim() || undefined;
 			continue;
 		}
+		if (trimmed.startsWith("**Duration:**")) {
+			const raw = trimmed.replace(/^\*\*Duration:\*\*\s*/, "").trim();
+			const ms = parseDurationToMs(raw);
+			if (ms != null) workDurationMs = ms;
+			continue;
+		}
 
 		// Section headings
 		if (trimmed.startsWith("## ")) {
 			const heading = trimmed.slice(3).trim().toLowerCase();
 			if (heading === "summary") {
 				currentSection = "summary";
+				continue;
+			}
+			if (heading.startsWith("work summary") || heading === "work" || heading === "jobs") {
+				currentSection = "work";
+				sawWorkSection = true;
+				continue;
+			}
+			if (heading === "commands" || heading === "commands run") {
+				currentSection = "commands";
+				sawWorkSection = true;
 				continue;
 			}
 			if (heading.startsWith("requirements check") || heading.startsWith("acceptance")) {
@@ -134,6 +176,33 @@ export function parseDeliverableMd(content: string, taskId: string): Deliverable
 			case "summary":
 				if (trimmed) summary += (summary ? " " : "") + trimmed;
 				break;
+			case "work": {
+				const jobMatch = trimmed.match(/^-\s*\[([ x~!])\]\s*(.+)$/);
+				if (jobMatch?.[2]) {
+					const flag = jobMatch[1];
+					const status: DeliverableJob["status"] =
+						flag === "x" ? "done" : flag === "~" ? "partial" : flag === "!" ? "failed" : "skipped";
+					const parts = jobMatch[2].split("—").map((s) => s.trim());
+					jobs.push({
+						title: parts[0] ?? jobMatch[2],
+						status,
+						...(parts[1] ? { detail: parts[1] } : {}),
+					});
+				} else if (trimmed.startsWith("- ")) {
+					jobs.push({ title: trimmed.slice(2), status: "done" });
+				} else if (trimmed) {
+					workNotes += (workNotes ? " " : "") + trimmed;
+				}
+				break;
+			}
+			case "commands":
+				if (trimmed.startsWith("```")) break;
+				if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+					commands.push(trimmed.slice(2).replace(/^`|`$/g, ""));
+				} else if (trimmed && !trimmed.startsWith("#")) {
+					commands.push(trimmed.replace(/^`|`$/g, ""));
+				}
+				break;
 			case "requirements": {
 				const match = trimmed.match(/^-\s*\[([ x~])\]\s*(.+)$/);
 				if (match?.[2]) {
@@ -156,6 +225,15 @@ export function parseDeliverableMd(content: string, taskId: string): Deliverable
 		}
 	}
 
+	const workSummary: DeliverableWorkSummary | undefined = sawWorkSection
+		? {
+				jobs,
+				commands,
+				...(workDurationMs != null ? { durationMs: workDurationMs } : {}),
+				...(workNotes ? { notes: workNotes } : {}),
+			}
+		: undefined;
+
 	return {
 		taskId,
 		summary,
@@ -163,8 +241,34 @@ export function parseDeliverableMd(content: string, taskId: string): Deliverable
 		...(roadmapVersion != null ? { roadmapVersion } : {}),
 		...(agent ? { agent } : {}),
 		...(completedAt ? { completedAt } : {}),
+		...(workSummary ? { workSummary } : {}),
 		requirementsCheck,
 		changedFiles,
 		openQuestions,
 	};
+}
+
+function parseDurationToMs(raw: string): number | null {
+	const trimmed = raw.trim();
+	if (!trimmed) return null;
+	const numeric = trimmed.match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|min|minutes|h|hours)?$/i);
+	if (!numeric) return null;
+	const value = Number.parseFloat(numeric[1] ?? "");
+	if (!Number.isFinite(value)) return null;
+	const unit = (numeric[2] ?? "ms").toLowerCase();
+	switch (unit) {
+		case "ms":
+			return Math.round(value);
+		case "s":
+			return Math.round(value * 1000);
+		case "m":
+		case "min":
+		case "minutes":
+			return Math.round(value * 60_000);
+		case "h":
+		case "hours":
+			return Math.round(value * 3_600_000);
+		default:
+			return Math.round(value);
+	}
 }

@@ -4,7 +4,6 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-
 import type {
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
@@ -155,6 +154,7 @@ import {
 	runtimeRoadmapFileResponseSchema,
 	runtimeRoadmapFileWriteRequestSchema,
 	runtimeRoadmapImportRequestSchema,
+	runtimeRoadmapMtimeResponseSchema,
 	runtimeRoadmapStateResponseSchema,
 	runtimeRoadmapStateWriteRequestSchema,
 	runtimeRunUpdateResponseSchema,
@@ -191,7 +191,14 @@ import {
 	runtimeWorktreeDeleteResponseSchema,
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
+	validationReviewOutcomeIoSchema,
 } from "../core/api-contract";
+import { experimentLogEntrySchema } from "../workspace/experiment-log-file.js";
+import {
+	changelogEntryInputSchema as sharedMemoryChangelogEntryInputSchema,
+	changelogEntrySchema as sharedMemoryChangelogEntrySchema,
+} from "../workspace/shared-memory.js";
+import { validationReportSchema } from "../workspace/validator.js";
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -583,20 +590,38 @@ export const runtimeAppRouter = t.router({
 				return await ctx.runtimeApi.startShellSession(ctx.workspaceScope, input);
 			}),
 		readRoadmapFile: workspaceProcedure.output(runtimeRoadmapFileResponseSchema).query(async ({ ctx }) => {
+			const { stat } = await import("node:fs/promises");
 			const { readRoadmapFile, getRoadmapFilePath } = await import("../workspace/roadmap-file.js");
+			const filePath = getRoadmapFilePath(ctx.workspaceScope.workspacePath);
 			const result = await readRoadmapFile(ctx.workspaceScope.workspacePath);
-			return { ...result, path: getRoadmapFilePath(ctx.workspaceScope.workspacePath) };
+			let mtime: number | null = null;
+			try {
+				const stats = await stat(filePath);
+				mtime = stats.mtimeMs;
+			} catch {
+				// ENOENT or other error — mtime stays null
+			}
+			return { ...result, path: filePath, mtime };
 		}),
 		writeRoadmapFile: workspaceProcedure
 			.input(runtimeRoadmapFileWriteRequestSchema)
 			.output(runtimeRoadmapFileResponseSchema)
 			.mutation(async ({ ctx, input }) => {
+				const { stat } = await import("node:fs/promises");
 				const { writeRoadmapFromItems, getRoadmapFilePath, serializeRoadmap } = await import(
 					"../workspace/roadmap-file.js"
 				);
+				const filePath = getRoadmapFilePath(ctx.workspaceScope.workspacePath);
 				await writeRoadmapFromItems(ctx.workspaceScope.workspacePath, input.items);
 				const content = serializeRoadmap(input.items);
-				return { exists: true, content, path: getRoadmapFilePath(ctx.workspaceScope.workspacePath) };
+				let mtime: number | null = null;
+				try {
+					const stats = await stat(filePath);
+					mtime = stats.mtimeMs;
+				} catch {
+					// Should not happen after a successful write, but handle gracefully
+				}
+				return { exists: true, content, path: filePath, mtime };
 			}),
 		importRoadmapText: workspaceProcedure
 			.input(runtimeRoadmapImportRequestSchema)
@@ -606,17 +631,59 @@ export const runtimeAppRouter = t.router({
 				return { items: parseImportedText(input.content) };
 			}),
 		readRoadmapState: workspaceProcedure.output(runtimeRoadmapStateResponseSchema).query(async ({ ctx }) => {
-			const { readRoadmapStateFile } = await import("../workspace/roadmap-state-file.js");
-			return await readRoadmapStateFile(ctx.workspaceScope.workspacePath);
+			const { stat } = await import("node:fs/promises");
+			const { readRoadmapStateFile, getRoadmapStateFilePath } = await import("../workspace/roadmap-state-file.js");
+			const result = await readRoadmapStateFile(ctx.workspaceScope.workspacePath);
+			let mtime: number | null = null;
+			try {
+				const stats = await stat(getRoadmapStateFilePath(ctx.workspaceScope.workspacePath));
+				mtime = stats.mtimeMs;
+			} catch {
+				// ENOENT — file doesn't exist yet
+			}
+			return { ...result, mtime };
+		}),
+		checkRoadmapMtime: workspaceProcedure.output(runtimeRoadmapMtimeResponseSchema).query(async ({ ctx }) => {
+			const { stat } = await import("node:fs/promises");
+			const { getRoadmapFilePath } = await import("../workspace/roadmap-file.js");
+			const { getRoadmapStateFilePath } = await import("../workspace/roadmap-state-file.js");
+
+			let roadmapFileMtime: number | null = null;
+			try {
+				const stats = await stat(getRoadmapFilePath(ctx.workspaceScope.workspacePath));
+				roadmapFileMtime = stats.mtimeMs;
+			} catch {
+				// ENOENT — file doesn't exist
+			}
+
+			let roadmapStateMtime: number | null = null;
+			try {
+				const stats = await stat(getRoadmapStateFilePath(ctx.workspaceScope.workspacePath));
+				roadmapStateMtime = stats.mtimeMs;
+			} catch {
+				// ENOENT — file doesn't exist
+			}
+
+			return { roadmapFileMtime, roadmapStateMtime };
 		}),
 		writeRoadmapState: workspaceProcedure
 			.input(runtimeRoadmapStateWriteRequestSchema)
 			.output(runtimeRoadmapStateResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				const { writeRoadmapStateFile } = await import("../workspace/roadmap-state-file.js");
+				const { stat } = await import("node:fs/promises");
+				const { writeRoadmapStateFile, getRoadmapStateFilePath } = await import(
+					"../workspace/roadmap-state-file.js"
+				);
 				const next = { version: 1 as const, itemStates: input.itemStates };
 				await writeRoadmapStateFile(ctx.workspaceScope.workspacePath, next);
-				return next;
+				let mtime: number | null = null;
+				try {
+					const stats = await stat(getRoadmapStateFilePath(ctx.workspaceScope.workspacePath));
+					mtime = stats.mtimeMs;
+				} catch {
+					// Should not happen after a successful write
+				}
+				return { ...next, mtime };
 			}),
 		readDeliverable: workspaceProcedure
 			.input(z.object({ taskId: z.string() }))
@@ -642,6 +709,281 @@ export const runtimeAppRouter = t.router({
 					return { content: null };
 				}
 			}),
+
+		// ── Roadmap templates ─────────────────────────────────────
+		listRoadmapTemplates: workspaceProcedure
+			.output(
+				z.array(
+					z.object({
+						id: z.string(),
+						name: z.string(),
+						description: z.string(),
+						itemCount: z.number(),
+					}),
+				),
+			)
+			.query(async () => {
+				const { getTemplateSummaries } = await import("../workspace/roadmap-templates.js");
+				return getTemplateSummaries();
+			}),
+		applyRoadmapTemplate: workspaceProcedure
+			.input(
+				z.object({
+					templateId: z.string(),
+					projectName: z.string().optional(),
+					force: z.boolean().optional(),
+				}),
+			)
+			.output(z.object({ success: z.boolean(), error: z.string().optional() }))
+			.mutation(async ({ ctx, input }) => {
+				const { applyTemplate } = await import("../workspace/roadmap-templates.js");
+				return await applyTemplate(
+					ctx.workspaceScope.workspacePath,
+					input.templateId,
+					input.projectName,
+					input.force,
+				);
+			}),
+
+		// ── Shared memory (multi-agent coordination) ──────────────
+		readSharedChangelog: workspaceProcedure
+			.output(z.array(sharedMemoryChangelogEntrySchema))
+			.query(async ({ ctx }) => {
+				const { readChangelog } = await import("../workspace/shared-memory.js");
+				return await readChangelog(ctx.workspaceScope.workspacePath);
+			}),
+		readSharedChangelogSince: workspaceProcedure
+			.input(z.object({ since: z.string() }))
+			.output(z.array(sharedMemoryChangelogEntrySchema))
+			.query(async ({ ctx, input }) => {
+				const { readChangelogSince } = await import("../workspace/shared-memory.js");
+				return await readChangelogSince(ctx.workspaceScope.workspacePath, input.since);
+			}),
+		appendSharedChangelog: workspaceProcedure
+			.input(sharedMemoryChangelogEntryInputSchema)
+			.output(z.void())
+			.mutation(async ({ ctx, input }) => {
+				const { appendChangelog } = await import("../workspace/shared-memory.js");
+				await appendChangelog(ctx.workspaceScope.workspacePath, input);
+			}),
+		readSharedInterfaces: workspaceProcedure.output(z.object({ content: z.string() })).query(async ({ ctx }) => {
+			const { readInterfaces } = await import("../workspace/shared-memory.js");
+			const content = await readInterfaces(ctx.workspaceScope.workspacePath);
+			return { content };
+		}),
+		writeSharedInterfaces: workspaceProcedure
+			.input(z.object({ content: z.string() }))
+			.output(z.void())
+			.mutation(async ({ ctx, input }) => {
+				const { writeInterfaces } = await import("../workspace/shared-memory.js");
+				await writeInterfaces(ctx.workspaceScope.workspacePath, input.content);
+			}),
+		readSharedDecisions: workspaceProcedure.output(z.object({ content: z.string() })).query(async ({ ctx }) => {
+			const { readDecisions } = await import("../workspace/shared-memory.js");
+			const content = await readDecisions(ctx.workspaceScope.workspacePath);
+			return { content };
+		}),
+		writeSharedDecisions: workspaceProcedure
+			.input(z.object({ content: z.string() }))
+			.output(z.void())
+			.mutation(async ({ ctx, input }) => {
+				const { writeDecisions } = await import("../workspace/shared-memory.js");
+				await writeDecisions(ctx.workspaceScope.workspacePath, input.content);
+			}),
+
+		// ── Deliverable validation ────────────────────────────────
+		validateDeliverable: workspaceProcedure
+			.input(
+				z.object({
+					taskId: z.string(),
+					specSlug: z.string(),
+					roadmapItemId: z.string(),
+					ownedPaths: z.array(z.string()),
+					specVersion: z.number().optional(),
+				}),
+			)
+			.output(validationReportSchema)
+			.mutation(async ({ ctx, input }) => {
+				const { validateDeliverable, writeValidationReport } = await import("../workspace/validator.js");
+				const { recordValidationResult } = await import("../workspace/validation-lifecycle.js");
+				const report = await validateDeliverable({
+					workspacePath: ctx.workspaceScope.workspacePath,
+					taskId: input.taskId,
+					specSlug: input.specSlug,
+					roadmapItemId: input.roadmapItemId,
+					ownedPaths: input.ownedPaths,
+					specVersion: input.specVersion,
+				});
+				await writeValidationReport(ctx.workspaceScope.workspacePath, input.taskId, report);
+				// Record the validation in roadmap-state.json for PM notification
+				await recordValidationResult(
+					ctx.workspaceScope.workspacePath,
+					input.roadmapItemId,
+					input.taskId,
+					report.result,
+					report.validatedAt,
+				);
+				return report;
+			}),
+		readValidationReport: workspaceProcedure
+			.input(z.object({ taskId: z.string() }))
+			.output(z.object({ content: z.string().nullable(), report: validationReportSchema.nullable() }))
+			.query(async ({ ctx, input }) => {
+				const { readValidationReportFile } = await import("../workspace/validator.js");
+				return await readValidationReportFile(ctx.workspaceScope.workspacePath, input.taskId);
+			}),
+		readExperimentLogs: workspaceProcedure
+			.input(z.object({ taskId: z.string() }))
+			.output(z.array(experimentLogEntrySchema))
+			.query(async ({ ctx, input }) => {
+				const { readExperimentLogs } = await import("../workspace/experiment-log-file.js");
+				return await readExperimentLogs(ctx.workspaceScope.workspacePath, input.taskId);
+			}),
+
+		// ── Validation lifecycle (PM review flow) ─────────────────
+		reviewValidation: workspaceProcedure
+			.input(
+				z.object({
+					roadmapItemId: z.string(),
+					taskId: z.string(),
+					outcome: validationReviewOutcomeIoSchema,
+				}),
+			)
+			.output(z.object({ updated: z.boolean() }))
+			.mutation(async ({ ctx, input }) => {
+				const { reviewValidation, maybeUpdateRoadmapStatus } = await import("../workspace/validation-lifecycle.js");
+				await reviewValidation(ctx.workspaceScope.workspacePath, input.roadmapItemId, input.taskId, input.outcome);
+				// If accepted, check whether the roadmap item is fully done
+				let updated = false;
+				if (input.outcome === "accepted") {
+					const boardState = await ctx.workspaceApi.loadState(ctx.workspaceScope);
+					updated = await maybeUpdateRoadmapStatus(
+						ctx.workspaceScope.workspacePath,
+						input.roadmapItemId,
+						boardState.board,
+					);
+				}
+				return { updated };
+			}),
+		getPendingValidations: workspaceProcedure
+			.output(
+				z.array(
+					z.object({
+						roadmapItemId: z.string(),
+						taskId: z.string(),
+						reportResult: z.string(),
+						validatedAt: z.string(),
+					}),
+				),
+			)
+			.query(async ({ ctx }) => {
+				const { getPendingValidations } = await import("../workspace/validation-lifecycle.js");
+				return await getPendingValidations(ctx.workspaceScope.workspacePath);
+			}),
+
+		// ── Project PR creation ──────────────────────────────────
+		createProjectPr: workspaceProcedure
+			.input(z.object({ taskId: z.string() }))
+			.output(
+				z.object({
+					success: z.boolean(),
+					prUrl: z.string().optional(),
+					prNumber: z.number().optional(),
+					error: z.string().optional(),
+					validationTriggered: z.boolean().optional(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				const { areAllProjectSubtasksDone, getProjectSubtasks } = await import("../core/task-board-mutations.js");
+				const { createProjectPr } = await import("../workspace/project-pr.js");
+
+				// Load board state to find the project card
+				const boardState = await ctx.workspaceApi.loadState(ctx.workspaceScope);
+				const board = boardState.board;
+
+				// Find the project card
+				let projectCard: (typeof board.columns)[number]["cards"][number] | null = null;
+				for (const column of board.columns) {
+					const found = column.cards.find((c) => c.id === input.taskId);
+					if (found) {
+						projectCard = found;
+						break;
+					}
+				}
+
+				if (!projectCard) {
+					return { success: false, error: `Task "${input.taskId}" not found.` };
+				}
+				if (projectCard.role !== "project_agent") {
+					return { success: false, error: `Task "${input.taskId}" is not a project agent card.` };
+				}
+				if (!projectCard.specSlug) {
+					return { success: false, error: `Project agent card "${input.taskId}" has no specSlug.` };
+				}
+				if (!projectCard.roadmapItemId) {
+					return { success: false, error: `Project agent card "${input.taskId}" has no roadmapItemId.` };
+				}
+
+				// Check if all sub-tasks are done
+				if (!areAllProjectSubtasksDone(board, input.taskId)) {
+					return { success: false, error: "Not all sub-tasks are complete. Cannot create PR yet." };
+				}
+
+				// Resolve branch names
+				const projectBranch = `project/${projectCard.specSlug}`;
+				const baseBranch = projectCard.baseRef;
+				const title = projectCard.title ?? `Project: ${projectCard.specSlug}`;
+
+				// Gather completed sub-task titles
+				const subtasks = getProjectSubtasks(board, input.taskId);
+				const completedSubtaskTitles = subtasks.map((s) => s.title ?? s.id);
+
+				// Create the PR
+				const result = await createProjectPr({
+					workspacePath: ctx.workspaceScope.workspacePath,
+					projectBranch,
+					baseBranch,
+					title,
+					specSlug: projectCard.specSlug,
+					roadmapItemId: projectCard.roadmapItemId,
+					taskId: input.taskId,
+					completedSubtaskTitles,
+				});
+
+				// Trigger validation after successful PR creation
+				let validationTriggered = false;
+				if (result.success) {
+					try {
+						const { validateDeliverable, writeValidationReport } = await import("../workspace/validator.js");
+						const { recordValidationResult } = await import("../workspace/validation-lifecycle.js");
+						const report = await validateDeliverable({
+							workspacePath: ctx.workspaceScope.workspacePath,
+							taskId: input.taskId,
+							specSlug: projectCard.specSlug,
+							roadmapItemId: projectCard.roadmapItemId,
+							ownedPaths: projectCard.ownedPaths ?? [],
+						});
+						await writeValidationReport(ctx.workspaceScope.workspacePath, input.taskId, report);
+						await recordValidationResult(
+							ctx.workspaceScope.workspacePath,
+							projectCard.roadmapItemId,
+							input.taskId,
+							report.result,
+							report.validatedAt,
+						);
+						validationTriggered = true;
+					} catch {
+						// Validation is best-effort after PR creation.
+						// The PR was still created successfully.
+					}
+				}
+
+				return {
+					...result,
+					validationTriggered,
+				};
+			}),
+
 		runCommand: workspaceProcedure
 			.input(runtimeCommandRunRequestSchema)
 			.output(runtimeCommandRunResponseSchema)

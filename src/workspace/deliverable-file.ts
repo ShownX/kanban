@@ -251,24 +251,35 @@ export function parseDeliverableMd(content: string, taskId: string): Deliverable
 function parseDurationToMs(raw: string): number | null {
 	const trimmed = raw.trim();
 	if (!trimmed) return null;
-	const numeric = trimmed.match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|min|minutes|h|hours)?$/i);
-	if (!numeric) return null;
-	const value = Number.parseFloat(numeric[1] ?? "");
-	if (!Number.isFinite(value)) return null;
-	const unit = (numeric[2] ?? "ms").toLowerCase();
+	// Match all <number><unit> tuples; e.g. "2m 30s" → [["2","m"], ["30","s"]].
+	const partRegex = /(\d+(?:\.\d+)?)\s*(ms|s|m|min|minutes|h|hours)?/gi;
+	let total = 0;
+	let matched = false;
+	for (let m = partRegex.exec(trimmed); m !== null; m = partRegex.exec(trimmed)) {
+		matched = true;
+		const value = Number.parseFloat(m[1] ?? "");
+		if (!Number.isFinite(value)) return null;
+		const unit = (m[2] ?? "ms").toLowerCase();
+		total += unitToMs(value, unit);
+	}
+	if (!matched) return null;
+	return Math.round(total);
+}
+
+function unitToMs(value: number, unit: string): number {
 	switch (unit) {
 		case "ms":
-			return Math.round(value);
+			return value;
 		case "s":
-			return Math.round(value * 1000);
+			return value * 1000;
 		case "m":
 		case "min":
 		case "minutes":
-			return Math.round(value * 60_000);
+			return value * 60_000;
 		case "h":
 		case "hours":
-			return Math.round(value * 3_600_000);
+			return value * 3_600_000;
 		default:
-			return Math.round(value);
+			return value;
 	}
 }

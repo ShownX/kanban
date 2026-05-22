@@ -9,6 +9,7 @@ import {
 	CircleArrowDown,
 	Command,
 	GitBranch,
+	HelpCircle,
 	Map as MapIcon,
 	Menu,
 	Play,
@@ -30,7 +31,7 @@ import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
+import type { RuntimeGitSyncAction, RuntimeProjectShortcut, RuntimeTokenUsage } from "@/runtime/types";
 import {
 	useHomeGitSummaryValue,
 	useTaskWorkspaceInfoValue,
@@ -42,6 +43,16 @@ import { isMacPlatform } from "@/utils/platform";
 
 type SettingsSection = "shortcuts";
 type CreateShortcutResult = { ok: boolean; message?: string };
+
+function formatTokenCount(count: number): string {
+	if (count >= 1_000_000) {
+		return `${(count / 1_000_000).toFixed(1)}M`;
+	}
+	if (count >= 1_000) {
+		return `${(count / 1_000).toFixed(1)}k`;
+	}
+	return String(count);
+}
 
 const MOBILE_TOUCH_TARGET = "min-w-[44px] min-h-[44px]";
 
@@ -315,6 +326,8 @@ export function TopBar({
 	canOpenWorkspace,
 	isOpeningWorkspace,
 	hideProjectDependentActions = false,
+	tokenUsage,
+	pendingValidationCount = 0,
 }: {
 	onToggleSidebar?: () => void;
 	onBack?: () => void;
@@ -351,6 +364,9 @@ export function TopBar({
 	canOpenWorkspace: boolean;
 	isOpeningWorkspace: boolean;
 	hideProjectDependentActions?: boolean;
+	tokenUsage?: RuntimeTokenUsage | null;
+	/** Number of un-reviewed validations across the workspace; renders a chip when > 0. */
+	pendingValidationCount?: number;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const displayWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
@@ -516,6 +532,24 @@ export function TopBar({
 									onGitPush={onGitPush}
 								/>
 							) : null}
+							<>
+								<div className="w-px h-5 bg-border mx-1" />
+								<Tooltip
+									side="bottom"
+									content={`Input: ${(tokenUsage?.totalInputTokens ?? 0).toLocaleString()} tokens | Output: ${(tokenUsage?.totalOutputTokens ?? 0).toLocaleString()} tokens${tokenUsage?.totalCost !== undefined ? ` | Cost: $${tokenUsage.totalCost.toFixed(4)}` : ""}`}
+								>
+									<div className="flex items-center gap-1.5 text-[11px] text-text-tertiary">
+										<span>
+											{"↓"}
+											{formatTokenCount(tokenUsage?.totalInputTokens ?? 0)}
+										</span>
+										<span>
+											{"↑"}
+											{formatTokenCount(tokenUsage?.totalOutputTokens ?? 0)}
+										</span>
+									</div>
+								</Tooltip>
+							</>
 						</>
 					) : null}
 				</div>
@@ -525,6 +559,16 @@ export function TopBar({
 					{/* Desktop: inline shortcut, terminal, debug buttons */}
 					{!isMobile ? (
 						<>
+							{!hideProjectDependentActions && pendingValidationCount > 0 ? (
+								<Tooltip
+									content={`${pendingValidationCount} validation${pendingValidationCount === 1 ? "" : "s"} awaiting PM review`}
+								>
+									<span className="mr-1 inline-flex h-7 items-center gap-1 rounded-full bg-status-orange/15 px-2 text-[11px] font-medium text-status-orange">
+										<HelpCircle size={12} />
+										{pendingValidationCount}
+									</span>
+								</Tooltip>
+							) : null}
 							{onOpenRoadmap && !hideProjectDependentActions ? (
 								<Button
 									variant="default"

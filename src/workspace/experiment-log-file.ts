@@ -82,3 +82,37 @@ function extname(name: string): string {
 	if (dot < 0) return "";
 	return name.slice(dot).toLowerCase();
 }
+
+/**
+ * Read a single experiment log in full (no truncation). Used when the user
+ * clicks "Load full" on a truncated log entry. Refuses path traversal — the
+ * `name` argument must be a bare filename, no slashes.
+ */
+export async function readExperimentLogFull(
+	workspacePath: string,
+	taskId: string,
+	name: string,
+): Promise<ExperimentLogEntry | null> {
+	if (!name || name.includes("/") || name.includes("\\") || name.includes("..")) {
+		return null;
+	}
+	const ext = extname(name);
+	if (ext && !SUPPORTED_EXTENSIONS.has(ext)) return null;
+
+	const dir = getExperimentsDirPath(workspacePath, taskId);
+	const filePath = join(dir, name);
+	const fileStat = await stat(filePath).catch(() => null);
+	if (!fileStat || !fileStat.isFile()) return null;
+
+	const content = await readFile(filePath, "utf8").catch(() => null);
+	if (content == null) return null;
+
+	return {
+		name,
+		relativePath: join(EXPERIMENTS_DIR, taskId, EXPERIMENTS_SUBDIR, name),
+		content,
+		mtime: fileStat.mtimeMs,
+		bytes: fileStat.size,
+		truncated: false,
+	};
+}

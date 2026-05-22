@@ -8,11 +8,16 @@ import {
 	CheckCircle2,
 	ChevronDown,
 	ChevronRight,
+	Code,
+	Copy,
+	Download,
+	Eye,
 	FileText,
 	FlaskConical,
 	HelpCircle,
 	Play,
 	RotateCcw,
+	Search,
 	Shield,
 	Terminal,
 	ThumbsDown,
@@ -283,6 +288,82 @@ function StalenessWarning(): ReactElement {
 	);
 }
 
+function RawMarkdownToggle({
+	showRaw,
+	onToggle,
+	className,
+}: {
+	showRaw: boolean;
+	onToggle: () => void;
+	className?: string;
+}): ReactElement {
+	return (
+		<button
+			type="button"
+			onClick={onToggle}
+			className={cn(
+				"inline-flex items-center gap-1 rounded-sm bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-text-tertiary hover:bg-surface-3 hover:text-text-secondary",
+				className,
+			)}
+			aria-pressed={showRaw}
+		>
+			{showRaw ? <Eye size={11} /> : <Code size={11} />}
+			{showRaw ? "Parsed" : "Raw"}
+		</button>
+	);
+}
+
+function RawMarkdownView({ content }: { content: string }): ReactElement {
+	return (
+		<pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-surface-0 px-2 py-1.5 font-mono text-[11px] leading-snug text-text-secondary">
+			{content}
+		</pre>
+	);
+}
+
+function EmptyDeliverableState({
+	canRunValidation,
+	onRunValidation,
+	isValidating,
+}: {
+	canRunValidation: boolean;
+	onRunValidation: () => void;
+	isValidating: boolean;
+}): ReactElement {
+	return (
+		<div className="flex flex-col gap-2 rounded-md border border-dashed border-border bg-surface-1 px-3 py-3 text-xs text-text-tertiary">
+			<div className="flex items-center gap-2 font-semibold uppercase tracking-wide text-text-secondary">
+				<FileText size={13} />
+				Awaiting deliverable
+			</div>
+			<p className="leading-relaxed">
+				When the task agent finishes, it will write{" "}
+				<code className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[10px] text-text-secondary">
+					.kanban/tasks/&lt;taskId&gt;/deliverable.md
+				</code>{" "}
+				with a summary, work narrative, and requirements check. Experiment logs go in{" "}
+				<code className="rounded-sm bg-surface-2 px-1 py-0.5 font-mono text-[10px] text-text-secondary">
+					experiments/
+				</code>
+				. Once the deliverable exists you can run the validator from here.
+			</p>
+			{canRunValidation ? (
+				<div>
+					<Button
+						variant="default"
+						size="sm"
+						icon={isValidating ? <Spinner size={12} /> : <Play size={14} />}
+						disabled={!canRunValidation}
+						onClick={onRunValidation}
+					>
+						Run validation anyway
+					</Button>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 function WorkSummarySection({
 	work,
 	agent,
@@ -365,8 +446,15 @@ function WorkSummarySection({
 	);
 }
 
-function DeliverableSection({ parsed }: { parsed: DeliverableParsed }): ReactElement {
+function DeliverableSection({
+	parsed,
+	rawMarkdown,
+}: {
+	parsed: DeliverableParsed;
+	rawMarkdown: string | null;
+}): ReactElement {
 	const completedRelative = formatRelativeTime(parsed.completedAt);
+	const [showRaw, setShowRaw] = useState(false);
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
@@ -380,8 +468,24 @@ function DeliverableSection({ parsed }: { parsed: DeliverableParsed }): ReactEle
 						{completedRelative}
 					</span>
 				) : null}
+				{rawMarkdown ? (
+					<RawMarkdownToggle
+						showRaw={showRaw}
+						onToggle={() => setShowRaw((v) => !v)}
+						className={completedRelative ? "" : "ml-auto"}
+					/>
+				) : null}
 			</div>
 
+			{showRaw && rawMarkdown ? <RawMarkdownView content={rawMarkdown} /> : <></>}
+			{!showRaw ? <DeliverableParsedBody parsed={parsed} /> : null}
+		</div>
+	);
+}
+
+function DeliverableParsedBody({ parsed }: { parsed: DeliverableParsed }): ReactElement {
+	return (
+		<>
 			{/* Summary */}
 			{parsed.summary ? <div className="text-xs leading-relaxed text-text-secondary">{parsed.summary}</div> : null}
 
@@ -443,7 +547,7 @@ function DeliverableSection({ parsed }: { parsed: DeliverableParsed }): ReactEle
 					</ul>
 				</div>
 			) : null}
-		</div>
+		</>
 	);
 }
 
@@ -501,15 +605,18 @@ function ValidatorWorkSection({ work }: { work: ValidationWorkSummaryView }): Re
 
 function ValidationReportSection({
 	report,
+	rawMarkdown,
 	onReview,
 	reviewState,
 }: {
 	report: ValidationReport;
+	rawMarkdown: string | null;
 	onReview?: (outcome: "accepted" | "rejected" | "escalated") => void;
 	reviewState: { pending: "accepted" | "rejected" | "escalated" | null };
 }): ReactElement {
 	const validatedRelative = formatRelativeTime(report.validatedAt);
 	const canReview = onReview != null && report.result !== "pass";
+	const [showRaw, setShowRaw] = useState(false);
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
@@ -524,30 +631,45 @@ function ValidationReportSection({
 						{validatedRelative}
 					</span>
 				) : null}
+				{rawMarkdown ? (
+					<RawMarkdownToggle
+						showRaw={showRaw}
+						onToggle={() => setShowRaw((v) => !v)}
+						className={validatedRelative ? "" : "ml-auto"}
+					/>
+				) : null}
 			</div>
 
-			{/* Validator's own work narrative */}
-			{report.workSummary ? <ValidatorWorkSection work={report.workSummary} /> : null}
+			{showRaw && rawMarkdown ? (
+				<RawMarkdownView content={rawMarkdown} />
+			) : (
+				<>
+					{/* Validator's own work narrative */}
+					{report.workSummary ? <ValidatorWorkSection work={report.workSummary} /> : null}
 
-			{/* Per-check results */}
-			{report.checks.length > 0 ? (
-				<div className="flex flex-col gap-1">
-					{report.checks.map((check) => (
-						<div key={check.check} className="flex items-start gap-2 text-xs">
-							<ValidationCheckStatusIcon status={check.status} />
-							<div className="min-w-0 flex-1">
-								<span className="text-text-secondary">{formatCheckName(check.check)}</span>
-								{check.status !== "pass" ? (
-									<span className="ml-1 text-text-tertiary"> -- {check.details}</span>
-								) : null}
-							</div>
+					{/* Per-check results */}
+					{report.checks.length > 0 ? (
+						<div className="flex flex-col gap-1">
+							{report.checks.map((check) => (
+								<div key={check.check} className="flex items-start gap-2 text-xs">
+									<ValidationCheckStatusIcon status={check.status} />
+									<div className="min-w-0 flex-1">
+										<span className="text-text-secondary">{formatCheckName(check.check)}</span>
+										{check.status !== "pass" ? (
+											<span className="ml-1 text-text-tertiary"> -- {check.details}</span>
+										) : null}
+									</div>
+								</div>
+							))}
 						</div>
-					))}
-				</div>
-			) : null}
+					) : null}
 
-			{/* Summary */}
-			{report.summary ? <div className="text-xs text-text-tertiary leading-relaxed">{report.summary}</div> : null}
+					{/* Summary */}
+					{report.summary ? (
+						<div className="text-xs text-text-tertiary leading-relaxed">{report.summary}</div>
+					) : null}
+				</>
+			)}
 
 			{/* Review actions — only meaningful when the report needs PM judgment */}
 			{canReview ? (
@@ -585,8 +707,77 @@ function ValidationReportSection({
 	);
 }
 
-function ExperimentLogEntry({ log }: { log: ExperimentLog }): ReactElement {
+function ExperimentLogEntry({
+	log,
+	workspaceId,
+	taskId,
+}: {
+	log: ExperimentLog;
+	workspaceId: string | null;
+	taskId: string;
+}): ReactElement {
 	const [open, setOpen] = useState(false);
+	const [fullContent, setFullContent] = useState<string | null>(null);
+	const [isLoadingFull, setIsLoadingFull] = useState(false);
+
+	const displayContent = fullContent ?? log.content;
+	const isShowingTruncated = log.truncated && fullContent == null;
+
+	const handleCopy = useCallback(
+		async (event: React.MouseEvent<HTMLButtonElement>) => {
+			event.stopPropagation();
+			try {
+				await navigator.clipboard.writeText(displayContent);
+				showAppToast({ intent: "success", message: `Copied "${log.name}" to clipboard.`, timeout: 2500 });
+			} catch {
+				showAppToast({ intent: "danger", icon: "warning-sign", message: "Copy failed.", timeout: 4000 });
+			}
+		},
+		[displayContent, log.name],
+	);
+
+	const handleDownload = useCallback(
+		(event: React.MouseEvent<HTMLButtonElement>) => {
+			event.stopPropagation();
+			const blob = new Blob([displayContent], { type: "text/plain" });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = log.name;
+			link.click();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+		},
+		[displayContent, log.name],
+	);
+
+	const handleLoadFull = useCallback(
+		async (event: React.MouseEvent<HTMLButtonElement>) => {
+			event.stopPropagation();
+			if (!workspaceId) return;
+			setIsLoadingFull(true);
+			try {
+				const trpc = getRuntimeTrpcClient(workspaceId);
+				const result = await trpc.runtime.readExperimentLogFull.query({ taskId, name: log.name });
+				if (result?.content != null) {
+					setFullContent(result.content);
+				} else {
+					showAppToast({
+						intent: "danger",
+						icon: "warning-sign",
+						message: "Could not load full log.",
+						timeout: 4000,
+					});
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : "Failed to load full log.";
+				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 4000 });
+			} finally {
+				setIsLoadingFull(false);
+			}
+		},
+		[workspaceId, taskId, log.name],
+	);
+
 	return (
 		<Collapsible.Root open={open} onOpenChange={setOpen}>
 			<Collapsible.Trigger asChild>
@@ -602,33 +793,105 @@ function ExperimentLogEntry({ log }: { log: ExperimentLog }): ReactElement {
 					<span className="truncate font-mono">{log.name}</span>
 					<span className="ml-auto shrink-0 text-[10px] text-text-tertiary">
 						{formatBytes(log.bytes)}
-						{log.truncated ? " (truncated)" : ""}
+						{isShowingTruncated ? " (truncated)" : ""}
 					</span>
 				</button>
 			</Collapsible.Trigger>
 			<Collapsible.Content>
+				<div className="mt-1 flex items-center gap-1 px-1">
+					<button
+						type="button"
+						onClick={handleCopy}
+						className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] text-text-tertiary hover:bg-surface-3 hover:text-text-secondary"
+						title="Copy contents"
+					>
+						<Copy size={11} />
+						Copy
+					</button>
+					<button
+						type="button"
+						onClick={handleDownload}
+						className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] text-text-tertiary hover:bg-surface-3 hover:text-text-secondary"
+						title="Download as file"
+					>
+						<Download size={11} />
+						Download
+					</button>
+					{isShowingTruncated ? (
+						<button
+							type="button"
+							onClick={handleLoadFull}
+							disabled={isLoadingFull || workspaceId == null}
+							className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] text-status-orange hover:bg-status-orange/15 disabled:opacity-40"
+							title="Fetch the full log content"
+						>
+							{isLoadingFull ? <Spinner size={10} /> : <Download size={11} />}
+							Load full
+						</button>
+					) : null}
+				</div>
 				<pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-surface-0 px-2 py-1.5 font-mono text-[11px] leading-snug text-text-secondary">
-					{log.content}
+					{displayContent}
 				</pre>
 			</Collapsible.Content>
 		</Collapsible.Root>
 	);
 }
 
-function ExperimentLogsSection({ logs }: { logs: ExperimentLog[] }): ReactElement {
+const EXPERIMENT_LOG_FILTER_THRESHOLD = 5;
+
+function ExperimentLogsSection({
+	logs,
+	workspaceId,
+	taskId,
+}: {
+	logs: ExperimentLog[];
+	workspaceId: string | null;
+	taskId: string;
+}): ReactElement {
+	const [filter, setFilter] = useState("");
+	const showFilter = logs.length >= EXPERIMENT_LOG_FILTER_THRESHOLD;
+	const visibleLogs = filter ? logs.filter((log) => log.name.toLowerCase().includes(filter.toLowerCase())) : logs;
+
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">
 				<FlaskConical size={13} />
 				Experiment Logs
 				<span className="ml-1 inline-flex items-center rounded-full bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-text-tertiary">
-					{logs.length}
+					{showFilter && filter ? `${visibleLogs.length}/${logs.length}` : logs.length}
 				</span>
 			</div>
+			{showFilter ? (
+				<div className="flex items-center gap-1.5 rounded-sm bg-surface-2 px-2 py-1">
+					<Search size={11} className="text-text-tertiary" />
+					<input
+						type="text"
+						value={filter}
+						onChange={(event) => setFilter(event.currentTarget.value)}
+						placeholder="Filter by name..."
+						className="flex-1 bg-transparent text-xs text-text-primary placeholder:text-text-tertiary focus:outline-none"
+					/>
+					{filter ? (
+						<button
+							type="button"
+							onClick={() => setFilter("")}
+							className="text-text-tertiary hover:text-text-secondary"
+							aria-label="Clear filter"
+						>
+							<X size={11} />
+						</button>
+					) : null}
+				</div>
+			) : null}
 			<div className="flex flex-col gap-1">
-				{logs.map((log) => (
-					<ExperimentLogEntry key={log.relativePath} log={log} />
-				))}
+				{visibleLogs.length === 0 ? (
+					<div className="text-xs text-text-tertiary">No logs match "{filter}".</div>
+				) : (
+					visibleLogs.map((log) => (
+						<ExperimentLogEntry key={log.relativePath} log={log} workspaceId={workspaceId} taskId={taskId} />
+					))
+				)}
 			</div>
 		</div>
 	);
@@ -729,7 +992,6 @@ export function DeliverableValidationPanel({
 		!isValidating &&
 		workspaceId != null &&
 		hasParsedDeliverable &&
-		!hasReport &&
 		roadmapItemId != null &&
 		specSlug != null &&
 		ownedPaths != null;
@@ -785,19 +1047,31 @@ export function DeliverableValidationPanel({
 		);
 	}
 
-	if (!hasParsedDeliverable && !hasReport && !hasExperiments) {
+	const isRoadmapLinkedReviewCard = roadmapItemId != null;
+	if (!hasParsedDeliverable && !hasReport && !hasExperiments && !isRoadmapLinkedReviewCard) {
 		return null;
 	}
 
 	const showStalenessWarning = hasReport && hasSpecStaleness(report);
+	const deliverableMarkdown = deliverable?.markdown ?? null;
+	const validationMarkdown = validationReport?.content ?? null;
 
 	return (
 		<div className="flex flex-col gap-4 border-t border-border px-3 py-3">
 			{showStalenessWarning ? <StalenessWarning /> : null}
-			{hasParsedDeliverable ? <DeliverableSection parsed={parsed} /> : null}
+			{hasParsedDeliverable ? (
+				<DeliverableSection parsed={parsed} rawMarkdown={deliverableMarkdown} />
+			) : isRoadmapLinkedReviewCard && !hasReport ? (
+				<EmptyDeliverableState
+					canRunValidation={canRunValidation}
+					onRunValidation={handleRunValidation}
+					isValidating={isValidating}
+				/>
+			) : null}
 			{hasReport ? (
 				<ValidationReportSection
 					report={report}
+					rawMarkdown={validationMarkdown}
 					onReview={roadmapItemId ? handleReview : undefined}
 					reviewState={{ pending: pendingReview }}
 				/>
@@ -815,7 +1089,7 @@ export function DeliverableValidationPanel({
 					<span className="text-xs text-text-tertiary">No validation report yet.</span>
 				</div>
 			) : null}
-			{hasReport && !pendingReview ? (
+			{hasReport && !pendingReview && canRunValidation ? (
 				<button
 					type="button"
 					onClick={handleRunValidation}
@@ -826,7 +1100,9 @@ export function DeliverableValidationPanel({
 					Re-run validation
 				</button>
 			) : null}
-			{hasExperiments ? <ExperimentLogsSection logs={experimentLogs} /> : null}
+			{hasExperiments ? (
+				<ExperimentLogsSection logs={experimentLogs} workspaceId={workspaceId} taskId={taskId} />
+			) : null}
 		</div>
 	);
 }

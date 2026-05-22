@@ -839,6 +839,13 @@ export const runtimeAppRouter = t.router({
 				const { readExperimentLogs } = await import("../workspace/experiment-log-file.js");
 				return await readExperimentLogs(ctx.workspaceScope.workspacePath, input.taskId);
 			}),
+		readExperimentLogFull: workspaceProcedure
+			.input(z.object({ taskId: z.string(), name: z.string() }))
+			.output(experimentLogEntrySchema.nullable())
+			.query(async ({ ctx, input }) => {
+				const { readExperimentLogFull } = await import("../workspace/experiment-log-file.js");
+				return await readExperimentLogFull(ctx.workspaceScope.workspacePath, input.taskId, input.name);
+			}),
 
 		// ── Validation lifecycle (PM review flow) ─────────────────
 		reviewValidation: workspaceProcedure

@@ -932,6 +932,7 @@ export default function App(): ReactElement {
 						isGitHistoryOpen={isGitHistoryOpen}
 						hideProjectDependentActions={shouldHideProjectDependentTopBarActions}
 						tokenUsage={tokenUsage}
+						pendingValidationCount={Object.keys(validationByTaskId).length}
 					/>
 					<div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
 						<div

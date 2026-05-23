@@ -48,6 +48,10 @@ export async function saveRuntimeConfig(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		defaultAutoReviewEnabled?: boolean;
+		defaultAutoReviewMode?: "commit" | "pr";
+		showDependencyArrows?: boolean;
+		autoValidateOnReadyForReview?: boolean;
 	},
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);

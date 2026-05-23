@@ -101,13 +101,24 @@ export async function reviewValidation(
 	const next = setItemState(state, roadmapItemId, updatedItem);
 	await writeRoadmapStateFile(workspacePath, next);
 
+	const reviewedAt = new Date().toISOString();
+
+	// Persist the review into validation-report.md so the history travels with
+	// git (roadmap-state.json is gitignored).
+	const { appendReviewToReportFile } = await import("./validator.js");
+	await appendReviewToReportFile(workspacePath, taskId, {
+		outcome,
+		reviewedAt,
+		...(trimmedNote ? { note: trimmedNote } : {}),
+	});
+
 	// Drop a review-feedback file for the task agent to read on its next run.
 	if (outcome !== "accepted") {
 		const { writeReviewFeedback } = await import("./review-feedback-file.js");
 		await writeReviewFeedback(workspacePath, taskId, {
 			outcome,
 			roadmapItemId,
-			reviewedAt: new Date().toISOString(),
+			reviewedAt,
 			...(trimmedNote ? { note: trimmedNote } : {}),
 		});
 	}

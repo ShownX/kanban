@@ -114,6 +114,10 @@ function createRuntimeConfig(overrides: Partial<RuntimeConfigResponse> = {}): Ru
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		defaultAutoReviewEnabled: false,
+		defaultAutoReviewMode: "commit",
+		showDependencyArrows: false,
+		autoValidateOnReadyForReview: false,
 		...overrides,
 	};
 }

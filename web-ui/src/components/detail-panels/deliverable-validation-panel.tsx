@@ -139,6 +139,7 @@ interface DeliverableValidationData {
 	reviewFeedback: ReviewFeedbackResponse | null;
 	validationHistory: ValidationHistoryResponse;
 	isLoading: boolean;
+	loadError: string | null;
 	refetch: () => void;
 }
 
@@ -153,90 +154,109 @@ function useDeliverableValidation(
 	const [reviewFeedback, setReviewFeedback] = useState<ReviewFeedbackResponse | null>(null);
 	const [validationHistory, setValidationHistory] = useState<ValidationHistoryResponse>([]);
 	const [isLoading, setIsLoading] = useState(true);
-	const isMountedRef = useRef(true);
+	const [loadError, setLoadError] = useState<string | null>(null);
+	const abortRef = useRef<AbortController | null>(null);
 
 	const fetchData = useCallback(() => {
+		// Cancel any in-flight requests from the previous fetch so stale data
+		// can't overwrite fresh state.
+		abortRef.current?.abort();
+		const controller = new AbortController();
+		abortRef.current = controller;
+		const isLive = () => !controller.signal.aborted;
+
 		if (!workspaceId) {
 			setIsLoading(false);
+			setLoadError(null);
 			return;
 		}
 
+		setLoadError(null);
 		const trpc = getRuntimeTrpcClient(workspaceId);
+		const failures: string[] = [];
 
 		const deliverablePromise = trpc.runtime.readDeliverable
-			.query({ taskId })
+			.query({ taskId }, { signal: controller.signal })
 			.then((result) => {
-				if (isMountedRef.current) setDeliverable(result);
+				if (isLive()) setDeliverable(result);
 			})
-			.catch(() => {
-				if (isMountedRef.current) setDeliverable(null);
+			.catch((error: unknown) => {
+				if (controller.signal.aborted) return;
+				setDeliverable(null);
+				failures.push(`deliverable: ${errorMessage(error)}`);
 			});
 
 		const reportPromise = trpc.runtime.readValidationReport
-			.query({ taskId })
+			.query({ taskId }, { signal: controller.signal })
 			.then((result) => {
-				if (isMountedRef.current) setValidationReport(result);
+				if (isLive()) setValidationReport(result);
 			})
-			.catch(() => {
-				if (isMountedRef.current) setValidationReport(null);
+			.catch((error: unknown) => {
+				if (controller.signal.aborted) return;
+				setValidationReport(null);
+				failures.push(`validation report: ${errorMessage(error)}`);
 			});
 
 		const experimentsPromise = trpc.runtime.readExperimentLogs
-			.query({ taskId })
+			.query({ taskId }, { signal: controller.signal })
 			.then((result) => {
-				if (isMountedRef.current) setExperimentLogs(result);
+				if (isLive()) setExperimentLogs(result);
 			})
-			.catch(() => {
-				if (isMountedRef.current) setExperimentLogs([]);
+			.catch((error: unknown) => {
+				if (controller.signal.aborted) return;
+				setExperimentLogs([]);
+				failures.push(`experiment logs: ${errorMessage(error)}`);
 			});
 
 		const feedbackPromise = trpc.runtime.readReviewFeedback
-			.query({ taskId })
+			.query({ taskId }, { signal: controller.signal })
 			.then((result) => {
-				if (isMountedRef.current) setReviewFeedback(result);
+				if (isLive()) setReviewFeedback(result);
 			})
-			.catch(() => {
-				if (isMountedRef.current) setReviewFeedback(null);
+			.catch((error: unknown) => {
+				if (controller.signal.aborted) return;
+				setReviewFeedback(null);
+				failures.push(`review feedback: ${errorMessage(error)}`);
 			});
 
 		const historyPromise = trpc.runtime.getTaskValidationHistory
-			.query({ taskId })
+			.query({ taskId }, { signal: controller.signal })
 			.then((result) => {
-				if (isMountedRef.current) setValidationHistory(result);
+				if (isLive()) setValidationHistory(result);
 			})
-			.catch(() => {
-				if (isMountedRef.current) setValidationHistory([]);
+			.catch((error: unknown) => {
+				if (controller.signal.aborted) return;
+				setValidationHistory([]);
+				failures.push(`validation history: ${errorMessage(error)}`);
 			});
 
 		void Promise.all([deliverablePromise, reportPromise, experimentsPromise, feedbackPromise, historyPromise]).then(
 			() => {
-				if (isMountedRef.current) setIsLoading(false);
+				if (controller.signal.aborted) return;
+				setIsLoading(false);
+				setLoadError(failures.length > 0 ? `Failed to load: ${failures.join("; ")}` : null);
 			},
 		);
 	}, [taskId, workspaceId]);
 
 	useEffect(() => {
-		isMountedRef.current = true;
 		setIsLoading(true);
 		setDeliverable(null);
 		setValidationReport(null);
 		setExperimentLogs([]);
 		setReviewFeedback(null);
 		setValidationHistory([]);
+		setLoadError(null);
 		fetchData();
 		return () => {
-			isMountedRef.current = false;
+			abortRef.current?.abort();
 		};
 	}, [fetchData]);
 
 	// Refetch in place (no spinner flicker) when the parent bumps refreshToken.
 	useEffect(() => {
 		if (refreshToken == null) return;
-		isMountedRef.current = true;
 		fetchData();
-		return () => {
-			isMountedRef.current = false;
-		};
 	}, [refreshToken, fetchData]);
 
 	return {
@@ -246,8 +266,14 @@ function useDeliverableValidation(
 		reviewFeedback,
 		validationHistory,
 		isLoading,
+		loadError,
 		refetch: fetchData,
 	};
+}
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	return String(error);
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +344,28 @@ function ResultBadge({ result }: { result: "pass" | "fail" | "needs_review" }): 
 			)}
 			{label}
 		</span>
+	);
+}
+
+function LoadErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }): ReactElement {
+	return (
+		<div className="flex items-start gap-2 rounded-md border border-status-red/30 bg-status-red/10 px-3 py-2 text-xs text-status-red">
+			<XCircle size={14} className="mt-0.5 shrink-0" />
+			<div className="min-w-0 flex-1">
+				<div className="font-medium">Couldn't load some panel data.</div>
+				<div className="mt-0.5 truncate text-text-tertiary" title={message}>
+					{message}
+				</div>
+			</div>
+			<button
+				type="button"
+				onClick={onRetry}
+				className="shrink-0 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium text-status-red hover:bg-status-red/15"
+			>
+				<RotateCcw size={11} />
+				Retry
+			</button>
+		</div>
 	);
 }
 
@@ -1072,12 +1120,29 @@ export function DeliverableValidationPanel({
 	onSelectFile,
 	availableFilePaths,
 }: DeliverableValidationPanelProps): ReactElement | null {
-	const { deliverable, validationReport, experimentLogs, reviewFeedback, validationHistory, isLoading, refetch } =
-		useDeliverableValidation(taskId, workspaceId, refreshToken);
+	const {
+		deliverable,
+		validationReport,
+		experimentLogs,
+		reviewFeedback,
+		validationHistory,
+		isLoading,
+		loadError,
+		refetch,
+	} = useDeliverableValidation(taskId, workspaceId, refreshToken);
 	const [pendingReview, setPendingReview] = useState<ReviewOutcome | null>(null);
 	const [isValidating, setIsValidating] = useState(false);
 	const [noteDialogOutcome, setNoteDialogOutcome] = useState<"rejected" | "escalated" | null>(null);
 	const [isResolvingFeedback, setIsResolvingFeedback] = useState(false);
+	const mutationsAbortRef = useRef<AbortController | null>(null);
+	useEffect(() => {
+		const controller = new AbortController();
+		mutationsAbortRef.current = controller;
+		return () => {
+			controller.abort();
+		};
+	}, [taskId]);
+	const isAborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true;
 
 	const parsed = deliverable?.parsed;
 	const report = validationReport?.report;
@@ -1098,22 +1163,23 @@ export function DeliverableValidationPanel({
 	const submitReview = useCallback(
 		async (outcome: ReviewOutcome, note?: string) => {
 			if (!workspaceId || !roadmapItemId) return;
+			const signal = mutationsAbortRef.current?.signal;
 			setPendingReview(outcome);
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
-				await trpc.runtime.reviewValidation.mutate({
-					taskId,
-					roadmapItemId,
-					outcome,
-					...(note ? { note } : {}),
-				});
+				await trpc.runtime.reviewValidation.mutate(
+					{ taskId, roadmapItemId, outcome, ...(note ? { note } : {}) },
+					{ signal },
+				);
+				if (isAborted(signal)) return;
 				showAppToast({ intent: "success", message: REVIEW_OUTCOME_LABEL[outcome], timeout: 3000 });
 				refetch();
 			} catch (error) {
+				if (isAborted(signal)) return;
 				const message = error instanceof Error ? error.message : "Failed to record review.";
 				showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 6000 });
 			} finally {
-				setPendingReview(null);
+				if (!isAborted(signal)) setPendingReview(null);
 			}
 		},
 		[workspaceId, roadmapItemId, taskId, refetch],
@@ -1132,37 +1198,38 @@ export function DeliverableValidationPanel({
 
 	const handleRunValidation = useCallback(async () => {
 		if (!workspaceId || !roadmapItemId || !specSlug || !ownedPaths) return;
+		const signal = mutationsAbortRef.current?.signal;
 		setIsValidating(true);
 		try {
 			const trpc = getRuntimeTrpcClient(workspaceId);
-			await trpc.runtime.validateDeliverable.mutate({
-				taskId,
-				specSlug,
-				roadmapItemId,
-				ownedPaths,
-			});
+			await trpc.runtime.validateDeliverable.mutate({ taskId, specSlug, roadmapItemId, ownedPaths }, { signal });
+			if (isAborted(signal)) return;
 			showAppToast({ intent: "success", message: "Validation report generated.", timeout: 3000 });
 			refetch();
 		} catch (error) {
+			if (isAborted(signal)) return;
 			const message = error instanceof Error ? error.message : "Failed to run validation.";
 			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 6000 });
 		} finally {
-			setIsValidating(false);
+			if (!isAborted(signal)) setIsValidating(false);
 		}
 	}, [workspaceId, roadmapItemId, specSlug, ownedPaths, taskId, refetch]);
 
 	const handleMarkFeedbackResolved = useCallback(async () => {
 		if (!workspaceId) return;
+		const signal = mutationsAbortRef.current?.signal;
 		setIsResolvingFeedback(true);
 		try {
 			const trpc = getRuntimeTrpcClient(workspaceId);
-			await trpc.runtime.clearReviewFeedback.mutate({ taskId });
+			await trpc.runtime.clearReviewFeedback.mutate({ taskId }, { signal });
+			if (isAborted(signal)) return;
 			refetch();
 		} catch (error) {
+			if (isAborted(signal)) return;
 			const message = error instanceof Error ? error.message : "Failed to clear feedback.";
 			showAppToast({ intent: "danger", icon: "warning-sign", message, timeout: 4000 });
 		} finally {
-			setIsResolvingFeedback(false);
+			if (!isAborted(signal)) setIsResolvingFeedback(false);
 		}
 	}, [workspaceId, taskId, refetch]);
 
@@ -1206,7 +1273,7 @@ export function DeliverableValidationPanel({
 	}
 
 	const isRoadmapLinkedReviewCard = roadmapItemId != null;
-	if (!hasParsedDeliverable && !hasReport && !hasExperiments && !isRoadmapLinkedReviewCard) {
+	if (!hasParsedDeliverable && !hasReport && !hasExperiments && !isRoadmapLinkedReviewCard && !loadError) {
 		return null;
 	}
 
@@ -1216,6 +1283,7 @@ export function DeliverableValidationPanel({
 
 	return (
 		<div className="flex flex-col gap-4 border-t border-border px-3 py-3">
+			{loadError ? <LoadErrorBanner message={loadError} onRetry={refetch} /> : null}
 			{priorFeedback ? (
 				<PriorFeedbackBanner
 					feedback={priorFeedback}

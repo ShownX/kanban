@@ -17,6 +17,10 @@ export interface UseRuntimeConfigResult {
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		defaultAutoReviewEnabled?: boolean;
+		defaultAutoReviewMode?: "commit" | "pr";
+		showDependencyArrows?: boolean;
+		autoValidateOnReadyForReview?: boolean;
 	}) => Promise<RuntimeConfigResponse | null>;
 }
 
@@ -84,6 +88,9 @@ export function useRuntimeConfig(
 			readyForReviewNotificationsEnabled?: boolean;
 			commitPromptTemplate?: string;
 			openPrPromptTemplate?: string;
+			defaultAutoReviewEnabled?: boolean;
+			defaultAutoReviewMode?: "commit" | "pr";
+			showDependencyArrows?: boolean;
 		}): Promise<RuntimeConfigResponse | null> => {
 			setIsSaving(true);
 			try {

@@ -124,5 +124,9 @@ export function buildRuntimeConfigResponse(
 		openPrPromptTemplate: runtimeConfig.openPrPromptTemplate,
 		commitPromptTemplateDefault: runtimeConfig.commitPromptTemplateDefault,
 		openPrPromptTemplateDefault: runtimeConfig.openPrPromptTemplateDefault,
+		defaultAutoReviewEnabled: runtimeConfig.defaultAutoReviewEnabled,
+		defaultAutoReviewMode: runtimeConfig.defaultAutoReviewMode,
+		showDependencyArrows: runtimeConfig.showDependencyArrows,
+		autoValidateOnReadyForReview: runtimeConfig.autoValidateOnReadyForReview,
 	};
 }

@@ -616,6 +616,59 @@ export async function writeValidationReport(
 	await writeFile(filePath, content, "utf8");
 }
 
+/**
+ * Append a "Reviews" entry to the validation-report.md so the reviewer's
+ * outcome and note travel with the report file (which can be committed),
+ * not just roadmap-state.json (which is gitignored).
+ *
+ * Multiple reviews append below the previous ones, newest at the bottom,
+ * under a single "## Reviews" section.
+ */
+export async function appendReviewToReportFile(
+	workspacePath: string,
+	taskId: string,
+	review: { outcome: "accepted" | "rejected" | "escalated"; reviewedAt: string; note?: string },
+): Promise<void> {
+	const filePath = getValidationReportPath(workspacePath, taskId);
+	let existing: string;
+	try {
+		existing = await readFile(filePath, "utf8");
+	} catch {
+		// No report on disk; nothing to append to.
+		return;
+	}
+
+	const reviewsHeading = "## Reviews";
+	const block = serializeReviewBlock(review);
+
+	let next: string;
+	if (existing.includes(reviewsHeading)) {
+		// Append within the existing Reviews section, after its last entry.
+		next = existing.replace(/\s*$/, ""); // trim trailing whitespace
+		next = `${next}\n\n${block}\n`;
+	} else {
+		// Add a new Reviews section at the end.
+		next = existing.replace(/\s*$/, "");
+		next = `${next}\n\n${reviewsHeading}\n\n${block}\n`;
+	}
+	await writeFile(filePath, next, "utf8");
+}
+
+function serializeReviewBlock(review: {
+	outcome: "accepted" | "rejected" | "escalated";
+	reviewedAt: string;
+	note?: string;
+}): string {
+	const label = review.outcome === "accepted" ? "Accepted" : review.outcome === "rejected" ? "Rejected" : "Escalated";
+	const lines: string[] = [];
+	lines.push(`### ${label} — ${review.reviewedAt}`);
+	if (review.note) {
+		lines.push("");
+		lines.push(review.note);
+	}
+	return lines.join("\n");
+}
+
 export async function readValidationReportFile(
 	workspacePath: string,
 	taskId: string,

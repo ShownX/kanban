@@ -187,6 +187,10 @@ function createRuntimeConfigState(): RuntimeConfigState {
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		defaultAutoReviewEnabled: false,
+		defaultAutoReviewMode: "commit",
+		showDependencyArrows: false,
+		autoValidateOnReadyForReview: false,
 		globalConfigPath: "/tmp/global-config.json",
 		projectConfigPath: "/tmp/project-config.json",
 	};

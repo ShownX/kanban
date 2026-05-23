@@ -375,6 +375,10 @@ export function RuntimeSettingsDialog({
 	const [shortcuts, setShortcuts] = useState<RuntimeProjectShortcut[]>([]);
 	const [commitPromptTemplate, setCommitPromptTemplate] = useState("");
 	const [openPrPromptTemplate, setOpenPrPromptTemplate] = useState("");
+	const [defaultAutoReviewEnabled, setDefaultAutoReviewEnabled] = useState(false);
+	const [defaultAutoReviewMode, setDefaultAutoReviewMode] = useState<"commit" | "pr">("commit");
+	const [showDependencyArrows, setShowDependencyArrows] = useState(false);
+	const [autoValidateOnReadyForReview, setAutoValidateOnReadyForReview] = useState(false);
 	const [selectedPromptVariant, setSelectedPromptVariant] = useState<TaskGitAction>("commit");
 	const [copiedVariableToken, setCopiedVariableToken] = useState<string | null>(null);
 	const [saveError, setSaveError] = useState<string | null>(null);
@@ -445,6 +449,10 @@ export function RuntimeSettingsDialog({
 	const initialShortcuts = config?.shortcuts ?? [];
 	const initialCommitPromptTemplate = config?.commitPromptTemplate ?? "";
 	const initialOpenPrPromptTemplate = config?.openPrPromptTemplate ?? "";
+	const initialDefaultAutoReviewEnabled = config?.defaultAutoReviewEnabled ?? false;
+	const initialDefaultAutoReviewMode = config?.defaultAutoReviewMode ?? "commit";
+	const initialShowDependencyArrows = config?.showDependencyArrows ?? false;
+	const initialAutoValidateOnReadyForReview = config?.autoValidateOnReadyForReview ?? false;
 	const clineSettings = useRuntimeSettingsClineController({
 		open,
 		workspaceId,
@@ -488,28 +496,48 @@ export function RuntimeSettingsDialog({
 		) {
 			return true;
 		}
-		return (
+		if (
 			normalizeTemplateForComparison(openPrPromptTemplate) !==
 			normalizeTemplateForComparison(initialOpenPrPromptTemplate)
-		);
+		) {
+			return true;
+		}
+		if (defaultAutoReviewEnabled !== initialDefaultAutoReviewEnabled) {
+			return true;
+		}
+		if (showDependencyArrows !== initialShowDependencyArrows) {
+			return true;
+		}
+		if (autoValidateOnReadyForReview !== initialAutoValidateOnReadyForReview) {
+			return true;
+		}
+		return defaultAutoReviewMode !== initialDefaultAutoReviewMode;
 	}, [
+		autoValidateOnReadyForReview,
+		initialAutoValidateOnReadyForReview,
 		agentAutonomousModeEnabled,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
 		config,
+		defaultAutoReviewEnabled,
+		defaultAutoReviewMode,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
 		initialCommitPromptTemplate,
+		initialDefaultAutoReviewEnabled,
+		initialDefaultAutoReviewMode,
 		initialOpenPrPromptTemplate,
 		initialReadyForReviewNotificationsEnabled,
 		initialSelectedAgentId,
 		initialShortcuts,
+		initialShowDependencyArrows,
 		initialThemeId,
 		openPrPromptTemplate,
 		readyForReviewNotificationsEnabled,
 		selectedAgentId,
 		shortcuts,
+		showDependencyArrows,
 	]);
 
 	useEffect(() => {
@@ -522,14 +550,22 @@ export function RuntimeSettingsDialog({
 		setShortcuts(config?.shortcuts ?? []);
 		setCommitPromptTemplate(config?.commitPromptTemplate ?? "");
 		setOpenPrPromptTemplate(config?.openPrPromptTemplate ?? "");
+		setDefaultAutoReviewEnabled(config?.defaultAutoReviewEnabled ?? false);
+		setDefaultAutoReviewMode(config?.defaultAutoReviewMode ?? "commit");
+		setShowDependencyArrows(config?.showDependencyArrows ?? false);
+		setAutoValidateOnReadyForReview(config?.autoValidateOnReadyForReview ?? false);
 		setSaveError(null);
 	}, [
 		config?.agentAutonomousModeEnabled,
+		config?.autoValidateOnReadyForReview,
 		config?.commitPromptTemplate,
+		config?.defaultAutoReviewEnabled,
+		config?.defaultAutoReviewMode,
 		config?.openPrPromptTemplate,
 		config?.readyForReviewNotificationsEnabled,
 		config?.selectedAgentId,
 		config?.shortcuts,
+		config?.showDependencyArrows,
 		fallbackAgentId,
 		open,
 	]);
@@ -704,6 +740,10 @@ export function RuntimeSettingsDialog({
 			shortcuts,
 			commitPromptTemplate,
 			openPrPromptTemplate,
+			defaultAutoReviewEnabled,
+			defaultAutoReviewMode,
+			showDependencyArrows,
+			autoValidateOnReadyForReview,
 		});
 		if (!saved) {
 			setSaveError("Could not save runtime settings. Check runtime logs and try again.");
@@ -1066,6 +1106,97 @@ export function RuntimeSettingsDialog({
 							: "<project>/.cline/kanban/config.json"}
 						{config?.projectConfigPath ? <ExternalLink size={12} className="inline ml-1.5 align-middle" /> : null}
 					</p>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
+							Auto-review
+						</h6>
+						<p className="text-text-secondary text-[13px] mt-0 mb-3">
+							When enabled, new tasks will automatically commit (or open a PR) when completed.
+						</p>
+						<div className="flex items-center gap-4">
+							<label
+								htmlFor="runtime-settings-auto-review-enabled"
+								className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer"
+							>
+								<RadixCheckbox.Root
+									id="runtime-settings-auto-review-enabled"
+									aria-label="Enable auto-review by default"
+									checked={defaultAutoReviewEnabled}
+									disabled={controlsDisabled}
+									onCheckedChange={(checked) => setDefaultAutoReviewEnabled(checked === true)}
+									className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+								>
+									<RadixCheckbox.Indicator>
+										<Check size={12} className="text-white" />
+									</RadixCheckbox.Indicator>
+								</RadixCheckbox.Root>
+								<span>Enable by default</span>
+							</label>
+							<NativeSelect
+								value={defaultAutoReviewMode}
+								onChange={(event) => setDefaultAutoReviewMode(event.target.value as "commit" | "pr")}
+								disabled={controlsDisabled}
+								style={{ minWidth: 100 }}
+							>
+								<option value="commit">Commit</option>
+								<option value="pr">Make PR</option>
+							</NativeSelect>
+						</div>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
+							Dependencies
+						</h6>
+						<div className="flex items-center gap-2 mb-3">
+							<label
+								htmlFor="runtime-settings-show-dependency-arrows"
+								className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer"
+							>
+								<RadixCheckbox.Root
+									id="runtime-settings-show-dependency-arrows"
+									aria-label="Show dependency arrows"
+									checked={showDependencyArrows}
+									disabled={controlsDisabled}
+									onCheckedChange={(checked) => setShowDependencyArrows(checked === true)}
+									className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+								>
+									<RadixCheckbox.Indicator>
+										<Check size={12} className="text-white" />
+									</RadixCheckbox.Indicator>
+								</RadixCheckbox.Root>
+								<span>Show dependency arrows</span>
+							</label>
+						</div>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">
+							Validation
+						</h6>
+						<div className="flex flex-col gap-1">
+							<label
+								htmlFor="runtime-settings-auto-validate"
+								className="flex items-center gap-2 text-[13px] text-text-primary cursor-pointer"
+							>
+								<RadixCheckbox.Root
+									id="runtime-settings-auto-validate"
+									aria-label="Auto-validate when a task signals ready for review"
+									checked={autoValidateOnReadyForReview}
+									disabled={controlsDisabled}
+									onCheckedChange={(checked) => setAutoValidateOnReadyForReview(checked === true)}
+									className="flex h-4 w-4 cursor-pointer items-center justify-center rounded border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent disabled:cursor-default disabled:opacity-40"
+								>
+									<RadixCheckbox.Indicator>
+										<Check size={12} className="text-white" />
+									</RadixCheckbox.Indicator>
+								</RadixCheckbox.Root>
+								<span>Auto-validate roadmap-linked tasks when they're ready for review</span>
+							</label>
+							<p className="ml-6 text-[11px] text-text-tertiary">
+								Runs the validator automatically when a task agent signals completion, so you don't have to
+								click "Run validation" yourself. Skipped if the card has no spec or roadmap link.
+							</p>
+						</div>
+					</div>
 					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 						<div className="flex items-center justify-between mb-2">
 							<h6

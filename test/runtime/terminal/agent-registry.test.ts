@@ -28,6 +28,10 @@ function createRuntimeConfigState(overrides: Partial<RuntimeConfigState> = {}): 
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		defaultAutoReviewEnabled: false,
+		defaultAutoReviewMode: "commit",
+		showDependencyArrows: false,
+		autoValidateOnReadyForReview: false,
 		...overrides,
 	};
 }

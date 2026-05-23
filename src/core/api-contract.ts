@@ -132,6 +132,9 @@ function normalizeRuntimeTaskClineSettings(input: {
 export const runtimeBoardCardCreatedBySchema = z.union([z.literal("human"), z.string().startsWith("agent:")]);
 export type RuntimeBoardCardCreatedBy = z.infer<typeof runtimeBoardCardCreatedBySchema>;
 
+export const runtimeBoardCardRoleSchema = z.enum(["task", "project_agent", "validator"]);
+export type RuntimeBoardCardRole = z.infer<typeof runtimeBoardCardRoleSchema>;
+
 export const runtimeBoardCardSchema = z
 	.object({
 		id: z.string(),
@@ -149,6 +152,12 @@ export const runtimeBoardCardSchema = z
 		baseRef: z.string(),
 		roadmapItemId: z.string().optional(),
 		createdBy: runtimeBoardCardCreatedBySchema.optional(),
+		/** Distinguishes project agent cards from regular tasks. Defaults to "task" when absent. */
+		role: runtimeBoardCardRoleSchema.optional(),
+		/** File paths this project agent owns. */
+		ownedPaths: z.array(z.string()).optional(),
+		/** Which spec this card is implementing. */
+		specSlug: z.string().optional(),
 		createdAt: z.number(),
 		updatedAt: z.number(),
 	})
@@ -213,6 +222,9 @@ export const runtimeRoadmapOpenQuestionSchema = z.object({
 });
 export type RuntimeRoadmapOpenQuestion = z.infer<typeof runtimeRoadmapOpenQuestionSchema>;
 
+export const runtimeRoadmapItemReadinessSchema = z.enum(["ready", "blocked", "needs_design", "needs_requirements"]);
+export type RuntimeRoadmapItemReadiness = z.infer<typeof runtimeRoadmapItemReadinessSchema>;
+
 export const runtimeRoadmapItemSchema = z.object({
 	id: z.string(),
 	title: z.string(),
@@ -220,8 +232,16 @@ export const runtimeRoadmapItemSchema = z.object({
 	status: runtimeRoadmapItemStatusSchema,
 	version: z.number().optional(),
 	owner: z.string().optional(),
-	requirements: z.string().optional(),
-	design: z.string().optional(),
+	/** Kebab-case slug for the `specs/<slug>/` directory. */
+	specSlug: z.string().optional(),
+	/** Exit criteria / definition of done. */
+	goal: z.string().optional(),
+	/** Readiness state of the roadmap item. */
+	readiness: runtimeRoadmapItemReadinessSchema.optional(),
+	/** External tracker reference (Jira, Linear, GitHub issue). */
+	ticket: z.string().optional(),
+	/** Point of contact (agent name or human @name). */
+	poc: z.string().optional(),
 	/** ISO 8601 date (YYYY-MM-DD) marking the planned start of the roadmap item. */
 	startDate: z.string().optional(),
 	/** ISO 8601 date (YYYY-MM-DD) marking the planned end of the roadmap item. */
@@ -438,12 +458,20 @@ export const runtimeClineMcpServerAuthStatusSchema = z.object({
 });
 export type RuntimeClineMcpServerAuthStatus = z.infer<typeof runtimeClineMcpServerAuthStatusSchema>;
 
+export const runtimeTokenUsageSchema = z.object({
+	totalInputTokens: z.number(),
+	totalOutputTokens: z.number(),
+	totalCost: z.number().optional(),
+});
+export type RuntimeTokenUsage = z.infer<typeof runtimeTokenUsageSchema>;
+
 export const runtimeStateStreamSnapshotMessageSchema = z.object({
 	type: z.literal("snapshot"),
 	currentProjectId: z.string().nullable(),
 	projects: z.array(runtimeProjectSummarySchema),
 	workspaceState: runtimeWorkspaceStateResponseSchema.nullable(),
 	workspaceMetadata: runtimeWorkspaceMetadataSchema.nullable(),
+	tokenUsage: runtimeTokenUsageSchema.nullable().optional(),
 	clineSessionContextVersion: z.number().int().nonnegative(),
 });
 export type RuntimeStateStreamSnapshotMessage = z.infer<typeof runtimeStateStreamSnapshotMessageSchema>;
@@ -517,6 +545,15 @@ export type RuntimeStateStreamClineSessionContextUpdatedMessage = z.infer<
 	typeof runtimeStateStreamClineSessionContextUpdatedMessageSchema
 >;
 
+export const runtimeStateStreamTokenUsageUpdatedMessageSchema = z.object({
+	type: z.literal("token_usage_updated"),
+	workspaceId: z.string(),
+	tokenUsage: runtimeTokenUsageSchema,
+});
+export type RuntimeStateStreamTokenUsageUpdatedMessage = z.infer<
+	typeof runtimeStateStreamTokenUsageUpdatedMessageSchema
+>;
+
 export const runtimeStateStreamErrorMessageSchema = z.object({
 	type: z.literal("error"),
 	message: z.string(),
@@ -534,6 +571,7 @@ export const runtimeStateStreamMessageSchema = z.discriminatedUnion("type", [
 	runtimeStateStreamTaskChatClearedMessageSchema,
 	runtimeStateStreamMcpAuthUpdatedMessageSchema,
 	runtimeStateStreamClineSessionContextUpdatedMessageSchema,
+	runtimeStateStreamTokenUsageUpdatedMessageSchema,
 	runtimeStateStreamErrorMessageSchema,
 ]);
 export type RuntimeStateStreamMessage = z.infer<typeof runtimeStateStreamMessageSchema>;
@@ -604,6 +642,10 @@ export type RuntimeProjectRemoveResponse = z.infer<typeof runtimeProjectRemoveRe
 export const runtimeWorktreeEnsureRequestSchema = z.object({
 	taskId: z.string(),
 	baseRef: z.string(),
+	/** Card role — used to decide between detached HEAD and a named branch. */
+	role: runtimeBoardCardRoleSchema.optional(),
+	/** Spec slug for project-related cards (drives the branch name). */
+	specSlug: z.string().optional(),
 });
 export type RuntimeWorktreeEnsureRequest = z.infer<typeof runtimeWorktreeEnsureRequestSchema>;
 
@@ -628,6 +670,10 @@ export type RuntimeWorktreeEnsureResponse = z.infer<typeof runtimeWorktreeEnsure
 
 export const runtimeWorktreeDeleteRequestSchema = z.object({
 	taskId: z.string(),
+	/** Base ref of the task card — used to detect project sub-tasks that need merging. */
+	baseRef: z.string().optional(),
+	/** Card role — project sub-tasks (non-project_agent with project/ baseRef) are merged. */
+	role: runtimeBoardCardRoleSchema.optional(),
 });
 export type RuntimeWorktreeDeleteRequest = z.infer<typeof runtimeWorktreeDeleteRequestSchema>;
 
@@ -635,6 +681,14 @@ export const runtimeWorktreeDeleteResponseSchema = z.object({
 	ok: z.boolean(),
 	removed: z.boolean(),
 	error: z.string().optional(),
+	/** Result of the sub-task merge into the project branch (if applicable). */
+	merge: z
+		.object({
+			attempted: z.boolean(),
+			success: z.boolean(),
+			error: z.string().optional(),
+		})
+		.optional(),
 });
 export type RuntimeWorktreeDeleteResponse = z.infer<typeof runtimeWorktreeDeleteResponseSchema>;
 
@@ -946,6 +1000,7 @@ export const runtimeRoadmapFileResponseSchema = z.object({
 	exists: z.boolean(),
 	content: z.string(),
 	path: z.string(),
+	mtime: z.number().nullable(),
 });
 export type RuntimeRoadmapFileResponse = z.infer<typeof runtimeRoadmapFileResponseSchema>;
 
@@ -970,10 +1025,22 @@ export const runtimeRoadmapAgentCommentIoSchema = z.object({
 });
 export type RuntimeRoadmapAgentCommentIo = z.infer<typeof runtimeRoadmapAgentCommentIoSchema>;
 
+export const validationReviewOutcomeIoSchema = z.enum(["accepted", "rejected", "escalated"]);
+
+export const pendingValidationIoSchema = z.object({
+	taskId: z.string(),
+	reportResult: z.enum(["pass", "fail", "needs_review"]),
+	validatedAt: z.string(),
+	reviewed: z.boolean().default(false),
+	reviewOutcome: validationReviewOutcomeIoSchema.optional(),
+});
+export type PendingValidationIo = z.infer<typeof pendingValidationIoSchema>;
+
 export const runtimeRoadmapItemStateIoSchema = z.object({
 	itemId: z.string(),
 	agentCreatedTaskIds: z.array(z.string()).default([]),
 	agentComments: z.array(runtimeRoadmapAgentCommentIoSchema).default([]),
+	pendingValidations: z.array(pendingValidationIoSchema).default([]),
 	lastUpdatedAt: z.number(),
 });
 export type RuntimeRoadmapItemStateIo = z.infer<typeof runtimeRoadmapItemStateIoSchema>;
@@ -981,8 +1048,15 @@ export type RuntimeRoadmapItemStateIo = z.infer<typeof runtimeRoadmapItemStateIo
 export const runtimeRoadmapStateResponseSchema = z.object({
 	version: z.literal(1),
 	itemStates: z.record(z.string(), runtimeRoadmapItemStateIoSchema),
+	mtime: z.number().nullable(),
 });
 export type RuntimeRoadmapStateResponse = z.infer<typeof runtimeRoadmapStateResponseSchema>;
+
+export const runtimeRoadmapMtimeResponseSchema = z.object({
+	roadmapFileMtime: z.number().nullable(),
+	roadmapStateMtime: z.number().nullable(),
+});
+export type RuntimeRoadmapMtimeResponse = z.infer<typeof runtimeRoadmapMtimeResponseSchema>;
 
 export const runtimeRoadmapStateWriteRequestSchema = z.object({
 	itemStates: z.record(z.string(), runtimeRoadmapItemStateIoSchema),
@@ -1066,6 +1140,10 @@ export const runtimeConfigResponseSchema = z.object({
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
+	defaultAutoReviewEnabled: z.boolean(),
+	defaultAutoReviewMode: runtimeTaskAutoReviewModeSchema,
+	showDependencyArrows: z.boolean(),
+	autoValidateOnReadyForReview: z.boolean(),
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1077,6 +1155,10 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
+	defaultAutoReviewEnabled: z.boolean().optional(),
+	defaultAutoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
+	showDependencyArrows: z.boolean().optional(),
+	autoValidateOnReadyForReview: z.boolean().optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 

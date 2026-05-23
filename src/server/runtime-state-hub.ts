@@ -16,9 +16,11 @@ import type {
 	RuntimeStateStreamTaskChatMessage,
 	RuntimeStateStreamTaskReadyForReviewMessage,
 	RuntimeStateStreamTaskSessionsMessage,
+	RuntimeStateStreamTokenUsageUpdatedMessage,
 	RuntimeStateStreamWorkspaceMetadataMessage,
 	RuntimeStateStreamWorkspaceStateMessage,
 	RuntimeTaskSessionSummary,
+	RuntimeTokenUsage,
 } from "../core/api-contract";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createWorkspaceMetadataMonitor } from "./workspace-metadata-monitor";
@@ -56,7 +58,9 @@ export interface RuntimeStateHub {
 	broadcastRuntimeProjectsUpdated: (preferredCurrentProjectId: string | null) => Promise<void>;
 	broadcastClineMcpAuthStatusesUpdated: (statuses: RuntimeClineMcpServerAuthStatus[]) => void;
 	bumpClineSessionContextVersion: () => void;
-	broadcastTaskReadyForReview: (workspaceId: string, taskId: string) => void;
+	broadcastTaskReadyForReview: (workspaceId: string, taskId: string, workspacePath?: string) => void;
+	recordTokenUsage: (workspaceId: string, inputTokens: number, outputTokens: number, cost?: number) => void;
+	getTokenUsage: (workspaceId: string) => RuntimeTokenUsage | null;
 	close: () => Promise<void>;
 }
 
@@ -64,12 +68,17 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const terminalSummaryUnsubscribeByWorkspaceId = new Map<string, () => void>();
 	const clineSummaryUnsubscribeByWorkspaceId = new Map<string, () => void>();
 	const clineMessageUnsubscribeByWorkspaceId = new Map<string, () => void>();
+	const clineUsageUnsubscribeByWorkspaceId = new Map<string, () => void>();
 	const clinePreviousSummaryByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const pendingTaskSessionSummariesByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const taskSessionBroadcastTimersByWorkspaceId = new Map<string, NodeJS.Timeout>();
 	const runtimeStateClientsByWorkspaceId = new Map<string, Set<WebSocket>>();
 	const runtimeStateClients = new Set<WebSocket>();
 	const runtimeStateWorkspaceIdByClient = new Map<WebSocket, string>();
+	const workspaceTokenUsage = new Map<
+		string,
+		{ totalInputTokens: number; totalOutputTokens: number; totalCost: number }
+	>();
 	let clineSessionContextVersion = 0;
 	const runtimeStateWebSocketServer = new WebSocketServer({ noServer: true });
 	const workspaceMetadataMonitor = createWorkspaceMetadataMonitor({
@@ -267,6 +276,15 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			}
 		}
 		clineMessageUnsubscribeByWorkspaceId.delete(workspaceId);
+		const unsubscribeClineUsage = clineUsageUnsubscribeByWorkspaceId.get(workspaceId);
+		if (unsubscribeClineUsage) {
+			try {
+				unsubscribeClineUsage();
+			} catch {
+				// Ignore listener cleanup errors during project removal.
+			}
+		}
+		clineUsageUnsubscribeByWorkspaceId.delete(workspaceId);
 		disposeTaskSessionSummaryBroadcast(workspaceId);
 		workspaceMetadataMonitor.disposeWorkspace(workspaceId);
 
@@ -322,19 +340,65 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		}
 	};
 
-	const broadcastTaskReadyForReview = (workspaceId: string, taskId: string) => {
+	const broadcastTaskReadyForReview = (workspaceId: string, taskId: string, workspacePath?: string) => {
 		const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
-		if (!runtimeClients || runtimeClients.size === 0) {
-			return;
-		}
 		const payload: RuntimeStateStreamTaskReadyForReviewMessage = {
 			type: "task_ready_for_review",
 			workspaceId,
 			taskId,
 			triggeredAt: Date.now(),
 		};
-		for (const client of runtimeClients) {
-			sendRuntimeStateMessage(client, payload);
+		if (runtimeClients) {
+			for (const client of runtimeClients) {
+				sendRuntimeStateMessage(client, payload);
+			}
+		}
+		if (workspacePath) {
+			void maybeAutoValidate(workspaceId, workspacePath, taskId);
+		}
+	};
+
+	const maybeAutoValidate = async (workspaceId: string, workspacePath: string, taskId: string): Promise<void> => {
+		try {
+			const { loadRuntimeConfig } = await import("../config/runtime-config.js");
+			const config = await loadRuntimeConfig(workspacePath);
+			if (!config.autoValidateOnReadyForReview) return;
+
+			const workspaceState = await deps.workspaceRegistry.buildWorkspaceStateSnapshot(workspaceId, workspacePath);
+			const card = workspaceState.board.columns.flatMap((column) => column.cards).find((c) => c.id === taskId);
+			if (!card) return;
+			if (!card.roadmapItemId || !card.specSlug) return;
+			const ownedPaths = card.ownedPaths ?? [];
+
+			const { validateDeliverable, writeValidationReport } = await import("../workspace/validator.js");
+			const { recordValidationResult } = await import("../workspace/validation-lifecycle.js");
+			const { clearReviewFeedback } = await import("../workspace/review-feedback-file.js");
+			const report = await validateDeliverable({
+				workspacePath,
+				taskId,
+				specSlug: card.specSlug,
+				roadmapItemId: card.roadmapItemId,
+				ownedPaths,
+			});
+			await writeValidationReport(workspacePath, taskId, report);
+			await recordValidationResult(workspacePath, card.roadmapItemId, taskId, report.result, report.validatedAt);
+			await clearReviewFeedback(workspacePath, taskId);
+
+			// Re-broadcast so the panel refetches the new validation report.
+			const subsequentClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
+			if (subsequentClients) {
+				const refreshPayload: RuntimeStateStreamTaskReadyForReviewMessage = {
+					type: "task_ready_for_review",
+					workspaceId,
+					taskId,
+					triggeredAt: Date.now(),
+				};
+				for (const client of subsequentClients) {
+					sendRuntimeStateMessage(client, refreshPayload);
+				}
+			}
+		} catch {
+			// Auto-validate is best-effort; never let it crash the hub.
 		}
 	};
 
@@ -431,12 +495,24 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 					cleanupRuntimeStateClient(client);
 					return;
 				}
+				const snapshotTokenUsage = monitorWorkspaceId
+					? (workspaceTokenUsage.get(monitorWorkspaceId) ?? null)
+					: null;
 				sendRuntimeStateMessage(client, {
 					type: "snapshot",
 					currentProjectId: projectsPayload.currentProjectId,
 					projects: projectsPayload.projects,
 					workspaceState,
 					workspaceMetadata,
+					tokenUsage:
+						snapshotTokenUsage &&
+						(snapshotTokenUsage.totalInputTokens > 0 || snapshotTokenUsage.totalOutputTokens > 0)
+							? {
+									totalInputTokens: snapshotTokenUsage.totalInputTokens,
+									totalOutputTokens: snapshotTokenUsage.totalOutputTokens,
+									...(snapshotTokenUsage.totalCost > 0 ? { totalCost: snapshotTokenUsage.totalCost } : {}),
+								}
+							: null,
 					clineSessionContextVersion,
 				} satisfies RuntimeStateStreamSnapshotMessage);
 				if (client.readyState !== WebSocket.OPEN) {
@@ -530,7 +606,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 						summary.reviewReason === "attention" ||
 						summary.reviewReason === "error")
 				) {
-					broadcastTaskReadyForReview(workspaceId, summary.taskId);
+					broadcastTaskReadyForReview(workspaceId, summary.taskId, workspacePath);
 				}
 			});
 			clineSummaryUnsubscribeByWorkspaceId.set(workspaceId, unsubscribe);
@@ -538,6 +614,35 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				broadcastTaskChatMessage(workspaceId, taskId, message);
 			});
 			clineMessageUnsubscribeByWorkspaceId.set(workspaceId, unsubscribeMessage);
+			const unsubscribeUsage = service.onUsage((_taskId, usage) => {
+				const existing = workspaceTokenUsage.get(workspaceId) ?? {
+					totalInputTokens: 0,
+					totalOutputTokens: 0,
+					totalCost: 0,
+				};
+				existing.totalInputTokens += usage.inputTokens;
+				existing.totalOutputTokens += usage.outputTokens;
+				if (usage.cost !== undefined) {
+					existing.totalCost += usage.cost;
+				}
+				workspaceTokenUsage.set(workspaceId, existing);
+				const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
+				if (runtimeClients && runtimeClients.size > 0) {
+					const payload: RuntimeStateStreamTokenUsageUpdatedMessage = {
+						type: "token_usage_updated",
+						workspaceId,
+						tokenUsage: {
+							totalInputTokens: existing.totalInputTokens,
+							totalOutputTokens: existing.totalOutputTokens,
+							...(existing.totalCost > 0 ? { totalCost: existing.totalCost } : {}),
+						},
+					};
+					for (const client of runtimeClients) {
+						sendRuntimeStateMessage(client, payload);
+					}
+				}
+			});
+			clineUsageUnsubscribeByWorkspaceId.set(workspaceId, unsubscribeUsage);
 		},
 		broadcastTaskChatMessage,
 		broadcastTaskChatCleared,
@@ -552,6 +657,45 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 		broadcastClineMcpAuthStatusesUpdated,
 		bumpClineSessionContextVersion,
 		broadcastTaskReadyForReview,
+		recordTokenUsage: (workspaceId: string, inputTokens: number, outputTokens: number, cost?: number) => {
+			const existing = workspaceTokenUsage.get(workspaceId) ?? {
+				totalInputTokens: 0,
+				totalOutputTokens: 0,
+				totalCost: 0,
+			};
+			existing.totalInputTokens += inputTokens;
+			existing.totalOutputTokens += outputTokens;
+			if (cost !== undefined) {
+				existing.totalCost += cost;
+			}
+			workspaceTokenUsage.set(workspaceId, existing);
+			const runtimeClients = runtimeStateClientsByWorkspaceId.get(workspaceId);
+			if (runtimeClients && runtimeClients.size > 0) {
+				const payload: RuntimeStateStreamTokenUsageUpdatedMessage = {
+					type: "token_usage_updated",
+					workspaceId,
+					tokenUsage: {
+						totalInputTokens: existing.totalInputTokens,
+						totalOutputTokens: existing.totalOutputTokens,
+						...(existing.totalCost > 0 ? { totalCost: existing.totalCost } : {}),
+					},
+				};
+				for (const client of runtimeClients) {
+					sendRuntimeStateMessage(client, payload);
+				}
+			}
+		},
+		getTokenUsage: (workspaceId: string): RuntimeTokenUsage | null => {
+			const usage = workspaceTokenUsage.get(workspaceId);
+			if (!usage || (usage.totalInputTokens === 0 && usage.totalOutputTokens === 0)) {
+				return null;
+			}
+			return {
+				totalInputTokens: usage.totalInputTokens,
+				totalOutputTokens: usage.totalOutputTokens,
+				...(usage.totalCost > 0 ? { totalCost: usage.totalCost } : {}),
+			};
+		},
 		close: async () => {
 			for (const timer of taskSessionBroadcastTimersByWorkspaceId.values()) {
 				clearTimeout(timer);
@@ -583,6 +727,15 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				}
 			}
 			clineMessageUnsubscribeByWorkspaceId.clear();
+			for (const unsubscribe of clineUsageUnsubscribeByWorkspaceId.values()) {
+				try {
+					unsubscribe();
+				} catch {
+					// Ignore listener cleanup errors during shutdown.
+				}
+			}
+			clineUsageUnsubscribeByWorkspaceId.clear();
+			workspaceTokenUsage.clear();
 			workspaceMetadataMonitor.close();
 			for (const client of runtimeStateClients) {
 				try {

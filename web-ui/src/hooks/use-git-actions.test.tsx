@@ -115,6 +115,10 @@ function createRuntimeConfig(selectedAgentId: RuntimeConfigResponse["selectedAge
 		openPrPromptTemplate: "pr",
 		commitPromptTemplateDefault: "commit",
 		openPrPromptTemplateDefault: "pr",
+		defaultAutoReviewEnabled: false,
+		defaultAutoReviewMode: "commit",
+		showDependencyArrows: false,
+		autoValidateOnReadyForReview: false,
 	};
 }
 

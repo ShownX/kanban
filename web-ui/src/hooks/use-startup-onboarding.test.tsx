@@ -51,6 +51,10 @@ function createRuntimeConfigResponse(selectedAgentId: RuntimeConfigResponse["sel
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",
 		openPrPromptTemplateDefault: "",
+		defaultAutoReviewEnabled: false,
+		defaultAutoReviewMode: "commit",
+		showDependencyArrows: false,
+		autoValidateOnReadyForReview: false,
 	};
 }
 

@@ -294,6 +294,10 @@ describe.sequential("runtime-config auto agent selection", () => {
 					shortcuts: [],
 					commitPromptTemplate: current.commitPromptTemplateDefault,
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
+					defaultAutoReviewEnabled: false,
+					defaultAutoReviewMode: "commit",
+					showDependencyArrows: false,
+					autoValidateOnReadyForReview: false,
 				});
 
 				const globalPayload = JSON.parse(
@@ -339,6 +343,10 @@ describe.sequential("runtime-config auto agent selection", () => {
 					shortcuts: [],
 					commitPromptTemplate: current.commitPromptTemplateDefault,
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
+					defaultAutoReviewEnabled: false,
+					defaultAutoReviewMode: "commit",
+					showDependencyArrows: false,
+					autoValidateOnReadyForReview: false,
 				});
 
 				expect(existsSync(join(tempProject, ".cline", "kanban", "config.json"))).toBe(false);
@@ -366,6 +374,10 @@ describe.sequential("runtime-config auto agent selection", () => {
 					shortcuts: [{ label: "Ship", command: "npm run ship", icon: "rocket" }],
 					commitPromptTemplate: current.commitPromptTemplateDefault,
 					openPrPromptTemplate: current.openPrPromptTemplateDefault,
+					defaultAutoReviewEnabled: false,
+					defaultAutoReviewMode: "commit",
+					showDependencyArrows: false,
+					autoValidateOnReadyForReview: false,
 				});
 				expect(existsSync(join(tempProject, ".cline", "kanban", "config.json"))).toBe(true);
 

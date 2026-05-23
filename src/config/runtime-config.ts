@@ -5,7 +5,7 @@ import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
-import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
+import type { RuntimeAgentId, RuntimeProjectShortcut, RuntimeTaskAutoReviewMode } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
@@ -17,10 +17,18 @@ interface RuntimeGlobalConfigFileShape {
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	defaultAutoReviewEnabled?: boolean;
+	defaultAutoReviewMode?: RuntimeTaskAutoReviewMode;
+	showDependencyArrows?: boolean;
+	autoValidateOnReadyForReview?: boolean;
 }
 
 interface RuntimeProjectConfigFileShape {
 	shortcuts?: RuntimeProjectShortcut[];
+	defaultAutoReviewEnabled?: boolean;
+	defaultAutoReviewMode?: RuntimeTaskAutoReviewMode;
+	showDependencyArrows?: boolean;
+	autoValidateOnReadyForReview?: boolean;
 }
 
 export interface RuntimeConfigState {
@@ -35,6 +43,10 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
+	defaultAutoReviewEnabled: boolean;
+	defaultAutoReviewMode: RuntimeTaskAutoReviewMode;
+	showDependencyArrows: boolean;
+	autoValidateOnReadyForReview: boolean;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -45,6 +57,10 @@ export interface RuntimeConfigUpdateInput {
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	defaultAutoReviewEnabled?: boolean;
+	defaultAutoReviewMode?: RuntimeTaskAutoReviewMode;
+	showDependencyArrows?: boolean;
+	autoValidateOnReadyForReview?: boolean;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -55,6 +71,10 @@ const PROJECT_CONFIG_DIR = "kanban";
 const PROJECT_CONFIG_FILENAME = "config.json";
 const DEFAULT_AGENT_ID: RuntimeAgentId = "cline";
 const AUTO_SELECT_AGENT_PRIORITY: readonly RuntimeAgentId[] = ["claude", "codex", "droid", "kiro"];
+const DEFAULT_AUTO_REVIEW_ENABLED = false;
+const DEFAULT_AUTO_REVIEW_MODE: RuntimeTaskAutoReviewMode = "commit";
+const DEFAULT_SHOW_DEPENDENCY_ARROWS = false;
+const DEFAULT_AUTO_VALIDATE_ON_READY_FOR_REVIEW = false;
 const DEFAULT_AGENT_AUTONOMOUS_MODE_ENABLED = true;
 const DEFAULT_READY_FOR_REVIEW_NOTIFICATIONS_ENABLED = true;
 const DEFAULT_COMMIT_PROMPT_TEMPLATE = `You are in a worktree on a detached HEAD. When you are finished with the task, commit the working changes onto {{base_ref}}.
@@ -185,6 +205,13 @@ function normalizeBoolean(value: unknown, fallback: boolean): boolean {
 	return fallback;
 }
 
+function normalizeAutoReviewMode(value: unknown): RuntimeTaskAutoReviewMode {
+	if (value === "commit" || value === "pr") {
+		return value;
+	}
+	return DEFAULT_AUTO_REVIEW_MODE;
+}
+
 function normalizeShortcutLabel(value: unknown): string | null {
 	if (typeof value !== "string") {
 		return null;
@@ -291,6 +318,21 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		defaultAutoReviewEnabled: normalizeBoolean(
+			projectConfig?.defaultAutoReviewEnabled ?? globalConfig?.defaultAutoReviewEnabled,
+			DEFAULT_AUTO_REVIEW_ENABLED,
+		),
+		defaultAutoReviewMode: normalizeAutoReviewMode(
+			projectConfig?.defaultAutoReviewMode ?? globalConfig?.defaultAutoReviewMode,
+		),
+		showDependencyArrows: normalizeBoolean(
+			projectConfig?.showDependencyArrows ?? globalConfig?.showDependencyArrows,
+			DEFAULT_SHOW_DEPENDENCY_ARROWS,
+		),
+		autoValidateOnReadyForReview: normalizeBoolean(
+			projectConfig?.autoValidateOnReadyForReview ?? globalConfig?.autoValidateOnReadyForReview,
+			DEFAULT_AUTO_VALIDATE_ON_READY_FOR_REVIEW,
+		),
 	};
 }
 
@@ -312,6 +354,10 @@ async function writeRuntimeGlobalConfigFile(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		defaultAutoReviewEnabled?: boolean;
+		defaultAutoReviewMode?: RuntimeTaskAutoReviewMode;
+		showDependencyArrows?: boolean;
+		autoValidateOnReadyForReview?: boolean;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
@@ -340,6 +386,22 @@ async function writeRuntimeGlobalConfigFile(
 		config.openPrPromptTemplate === undefined
 			? DEFAULT_OPEN_PR_PROMPT_TEMPLATE
 			: normalizePromptTemplate(config.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE);
+	const defaultAutoReviewEnabled =
+		config.defaultAutoReviewEnabled === undefined
+			? DEFAULT_AUTO_REVIEW_ENABLED
+			: normalizeBoolean(config.defaultAutoReviewEnabled, DEFAULT_AUTO_REVIEW_ENABLED);
+	const defaultAutoReviewMode =
+		config.defaultAutoReviewMode === undefined
+			? DEFAULT_AUTO_REVIEW_MODE
+			: normalizeAutoReviewMode(config.defaultAutoReviewMode);
+	const showDependencyArrows =
+		config.showDependencyArrows === undefined
+			? DEFAULT_SHOW_DEPENDENCY_ARROWS
+			: normalizeBoolean(config.showDependencyArrows, DEFAULT_SHOW_DEPENDENCY_ARROWS);
+	const autoValidateOnReadyForReview =
+		config.autoValidateOnReadyForReview === undefined
+			? DEFAULT_AUTO_VALIDATE_ON_READY_FOR_REVIEW
+			: normalizeBoolean(config.autoValidateOnReadyForReview, DEFAULT_AUTO_VALIDATE_ON_READY_FOR_REVIEW);
 
 	const payload: RuntimeGlobalConfigFileShape = {};
 	if (selectedAgentId !== undefined) {
@@ -373,6 +435,21 @@ async function writeRuntimeGlobalConfigFile(
 	}
 	if (hasOwnKey(existing, "openPrPromptTemplate") || openPrPromptTemplate !== DEFAULT_OPEN_PR_PROMPT_TEMPLATE) {
 		payload.openPrPromptTemplate = openPrPromptTemplate;
+	}
+	if (hasOwnKey(existing, "defaultAutoReviewEnabled") || defaultAutoReviewEnabled !== DEFAULT_AUTO_REVIEW_ENABLED) {
+		payload.defaultAutoReviewEnabled = defaultAutoReviewEnabled;
+	}
+	if (hasOwnKey(existing, "defaultAutoReviewMode") || defaultAutoReviewMode !== DEFAULT_AUTO_REVIEW_MODE) {
+		payload.defaultAutoReviewMode = defaultAutoReviewMode;
+	}
+	if (hasOwnKey(existing, "showDependencyArrows") || showDependencyArrows !== DEFAULT_SHOW_DEPENDENCY_ARROWS) {
+		payload.showDependencyArrows = showDependencyArrows;
+	}
+	if (
+		hasOwnKey(existing, "autoValidateOnReadyForReview") ||
+		autoValidateOnReadyForReview !== DEFAULT_AUTO_VALIDATE_ON_READY_FOR_REVIEW
+	) {
+		payload.autoValidateOnReadyForReview = autoValidateOnReadyForReview;
 	}
 
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
@@ -456,6 +533,10 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
+	defaultAutoReviewEnabled: boolean;
+	defaultAutoReviewMode: RuntimeTaskAutoReviewMode;
+	showDependencyArrows: boolean;
+	autoValidateOnReadyForReview: boolean;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -475,6 +556,13 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		defaultAutoReviewEnabled: normalizeBoolean(input.defaultAutoReviewEnabled, DEFAULT_AUTO_REVIEW_ENABLED),
+		defaultAutoReviewMode: normalizeAutoReviewMode(input.defaultAutoReviewMode),
+		showDependencyArrows: normalizeBoolean(input.showDependencyArrows, DEFAULT_SHOW_DEPENDENCY_ARROWS),
+		autoValidateOnReadyForReview: normalizeBoolean(
+			input.autoValidateOnReadyForReview,
+			DEFAULT_AUTO_VALIDATE_ON_READY_FOR_REVIEW,
+		),
 	};
 }
 
@@ -489,6 +577,10 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
+		defaultAutoReviewEnabled: current.defaultAutoReviewEnabled,
+		defaultAutoReviewMode: current.defaultAutoReviewMode,
+		showDependencyArrows: current.showDependencyArrows,
+		autoValidateOnReadyForReview: current.autoValidateOnReadyForReview,
 	});
 }
 
@@ -524,6 +616,10 @@ export async function saveRuntimeConfig(
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
 		openPrPromptTemplate: string;
+		defaultAutoReviewEnabled: boolean;
+		defaultAutoReviewMode: RuntimeTaskAutoReviewMode;
+		showDependencyArrows: boolean;
+		autoValidateOnReadyForReview: boolean;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
@@ -535,6 +631,10 @@ export async function saveRuntimeConfig(
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			defaultAutoReviewEnabled: config.defaultAutoReviewEnabled,
+			defaultAutoReviewMode: config.defaultAutoReviewMode,
+			showDependencyArrows: config.showDependencyArrows,
+			autoValidateOnReadyForReview: config.autoValidateOnReadyForReview,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
 		return createRuntimeConfigStateFromValues({
@@ -547,6 +647,10 @@ export async function saveRuntimeConfig(
 			shortcuts: config.shortcuts,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			defaultAutoReviewEnabled: config.defaultAutoReviewEnabled,
+			defaultAutoReviewMode: config.defaultAutoReviewMode,
+			showDependencyArrows: config.showDependencyArrows,
+			autoValidateOnReadyForReview: config.autoValidateOnReadyForReview,
 		});
 	});
 }
@@ -568,6 +672,10 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+			defaultAutoReviewEnabled: updates.defaultAutoReviewEnabled ?? current.defaultAutoReviewEnabled,
+			defaultAutoReviewMode: updates.defaultAutoReviewMode ?? current.defaultAutoReviewMode,
+			showDependencyArrows: updates.showDependencyArrows ?? current.showDependencyArrows,
+			autoValidateOnReadyForReview: updates.autoValidateOnReadyForReview ?? current.autoValidateOnReadyForReview,
 		};
 
 		const hasChanges =
@@ -577,6 +685,10 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+			nextConfig.defaultAutoReviewEnabled !== current.defaultAutoReviewEnabled ||
+			nextConfig.defaultAutoReviewMode !== current.defaultAutoReviewMode ||
+			nextConfig.showDependencyArrows !== current.showDependencyArrows ||
+			nextConfig.autoValidateOnReadyForReview !== current.autoValidateOnReadyForReview ||
 			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
 
 		if (!hasChanges) {
@@ -590,6 +702,10 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			defaultAutoReviewEnabled: nextConfig.defaultAutoReviewEnabled,
+			defaultAutoReviewMode: nextConfig.defaultAutoReviewMode,
+			showDependencyArrows: nextConfig.showDependencyArrows,
+			autoValidateOnReadyForReview: nextConfig.autoValidateOnReadyForReview,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -604,6 +720,10 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: nextConfig.shortcuts,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			defaultAutoReviewEnabled: nextConfig.defaultAutoReviewEnabled,
+			defaultAutoReviewMode: nextConfig.defaultAutoReviewMode,
+			showDependencyArrows: nextConfig.showDependencyArrows,
+			autoValidateOnReadyForReview: nextConfig.autoValidateOnReadyForReview,
 		});
 	});
 }
@@ -633,6 +753,10 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: current.shortcuts,
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+				defaultAutoReviewEnabled: updates.defaultAutoReviewEnabled ?? current.defaultAutoReviewEnabled,
+				defaultAutoReviewMode: updates.defaultAutoReviewMode ?? current.defaultAutoReviewMode,
+				showDependencyArrows: updates.showDependencyArrows ?? current.showDependencyArrows,
+				autoValidateOnReadyForReview: updates.autoValidateOnReadyForReview ?? current.autoValidateOnReadyForReview,
 			};
 
 			const hasChanges =
@@ -641,7 +765,11 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate;
+				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+				nextConfig.defaultAutoReviewEnabled !== current.defaultAutoReviewEnabled ||
+				nextConfig.defaultAutoReviewMode !== current.defaultAutoReviewMode ||
+				nextConfig.showDependencyArrows !== current.showDependencyArrows ||
+				nextConfig.autoValidateOnReadyForReview !== current.autoValidateOnReadyForReview;
 
 			if (!hasChanges) {
 				return current;
@@ -654,6 +782,10 @@ export async function updateGlobalRuntimeConfig(
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				defaultAutoReviewEnabled: nextConfig.defaultAutoReviewEnabled,
+				defaultAutoReviewMode: nextConfig.defaultAutoReviewMode,
+				showDependencyArrows: nextConfig.showDependencyArrows,
+				autoValidateOnReadyForReview: nextConfig.autoValidateOnReadyForReview,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -666,6 +798,10 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: nextConfig.shortcuts,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				defaultAutoReviewEnabled: nextConfig.defaultAutoReviewEnabled,
+				defaultAutoReviewMode: nextConfig.defaultAutoReviewMode,
+				showDependencyArrows: nextConfig.showDependencyArrows,
+				autoValidateOnReadyForReview: nextConfig.autoValidateOnReadyForReview,
 			});
 		},
 	);

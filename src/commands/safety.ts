@@ -79,17 +79,20 @@ export function registerSafetyCommand(program: Command): void {
 
 	safety
 		.command("check-path")
-		.description("Check whether a candidate path falls within an agent's ownedPaths scope.")
-		.requiredOption("--path <path>", "Candidate path (workspace-relative).")
-		.requiredOption(
-			"--owned <comma-separated>",
-			"Comma-separated workspace-relative ownedPaths declared by the agent.",
+		.description(
+			"Check whether a candidate path falls within an agent's ownedPaths scope. Falls back to $KANBAN_OWNED_PATHS and $KANBAN_WORKSPACE when --owned/--workspace are omitted, so the same command works as a pre-write hook.",
 		)
-		.option("--workspace <path>", "Workspace root. Defaults to the current directory.")
-		.action(async (options: { path: string; owned: string; workspace?: string }) => {
+		.requiredOption("--path <path>", "Candidate path (workspace-relative).")
+		.option(
+			"--owned <comma-separated>",
+			"Comma-separated workspace-relative ownedPaths declared by the agent. Defaults to $KANBAN_OWNED_PATHS.",
+		)
+		.option("--workspace <path>", "Workspace root. Defaults to $KANBAN_WORKSPACE, then the current directory.")
+		.action(async (options: { path: string; owned?: string; workspace?: string }) => {
 			await runSafety(async () => {
-				const workspacePath = resolve(options.workspace ?? process.cwd());
-				const ownedPaths = parseOwnedPathsOption(options.owned);
+				const workspacePath = resolve(options.workspace ?? process.env.KANBAN_WORKSPACE ?? process.cwd());
+				const ownedRaw = options.owned ?? process.env.KANBAN_OWNED_PATHS ?? "";
+				const ownedPaths = parseOwnedPathsOption(ownedRaw);
 				const violation = checkPathInScope({ workspacePath, ownedPaths }, options.path);
 				if (!violation) {
 					return { ok: true, workspacePath, candidatePath: options.path, inScope: true };

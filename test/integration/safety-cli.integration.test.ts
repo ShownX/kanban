@@ -11,11 +11,11 @@ function resolveTsxLoaderImportSpecifier(): string {
 	return pathToFileURL(requireFromHere.resolve("tsx")).href;
 }
 
-function runCli(args: string[]): { status: number | null; stdout: string; stderr: string } {
+function runCli(args: string[], env?: NodeJS.ProcessEnv): { status: number | null; stdout: string; stderr: string } {
 	const result = spawnSync(
 		process.execPath,
 		["--import", resolveTsxLoaderImportSpecifier(), resolve(process.cwd(), "src/cli.ts"), ...args],
-		{ encoding: "utf8", timeout: 60_000 },
+		{ encoding: "utf8", timeout: 60_000, env: { ...process.env, ...env } },
 	);
 	return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -96,6 +96,28 @@ describe("kanban safety CLI", () => {
 		expect(result.status).toBe(0);
 		const payload = JSON.parse(result.stdout) as { after: string[] };
 		expect(payload.after).toEqual(["src/auth"]);
+	});
+
+	it("falls back to KANBAN_OWNED_PATHS / KANBAN_WORKSPACE env vars on check-path", () => {
+		const result = runCli(["safety", "check-path", "--path", "src/auth/login.ts"], {
+			KANBAN_WORKSPACE: "/tmp/kanban-ws",
+			KANBAN_OWNED_PATHS: "src/auth/",
+		});
+		expect(result.status).toBe(0);
+		const payload = JSON.parse(result.stdout) as { ok: boolean; inScope: boolean };
+		expect(payload.ok).toBe(true);
+		expect(payload.inScope).toBe(true);
+	});
+
+	it("env-fallback check-path exits non-zero when out of scope", () => {
+		const result = runCli(["safety", "check-path", "--path", "src/payment/x.ts"], {
+			KANBAN_WORKSPACE: "/tmp/kanban-ws",
+			KANBAN_OWNED_PATHS: "src/auth",
+		});
+		expect(result.status).toBe(1);
+		const payload = JSON.parse(result.stdout) as { ok: boolean; reason: string };
+		expect(payload.ok).toBe(false);
+		expect(payload.reason).toBe("outside_owned_paths");
 	});
 
 	it("verify-log returns ok on a missing log (vacuously valid)", () => {

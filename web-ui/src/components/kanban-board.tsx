@@ -59,6 +59,7 @@ export function KanbanBoard({
 	highlightCardId,
 	showDependencyArrows = false,
 	validationByTaskId,
+	latestValidationByTaskId,
 }: {
 	data: BoardData;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
@@ -92,6 +93,19 @@ export function KanbanBoard({
 	showDependencyArrows?: boolean;
 	/** Map of taskId -> pending validation entry, used to render badges on cards. */
 	validationByTaskId?: Record<string, { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean }>;
+	/**
+	 * Latest validation entry per task (reviewed or not). Used by done-column
+	 * cards to surface the reviewer's outcome (Accepted/Rejected) once the
+	 * pending validation badge clears.
+	 */
+	latestValidationByTaskId?: Record<
+		string,
+		{
+			reportResult: "pass" | "fail" | "needs_review";
+			reviewed: boolean;
+			reviewOutcome?: "accepted" | "rejected" | "escalated";
+		}
+	>;
 }): React.ReactElement {
 	const dragOccurredRef = useRef(false);
 	const boardRef = useRef<HTMLElement>(null);
@@ -438,6 +452,7 @@ export function KanbanBoard({
 						onNavigateToRoadmapItem={onNavigateToRoadmapItem}
 						highlightCardId={highlightCardId}
 						validationByTaskId={column.id === "review" ? validationByTaskId : undefined}
+						latestValidationByTaskId={column.id === "trash" ? latestValidationByTaskId : undefined}
 						onCardClick={(card) => {
 							if (!dragOccurredRef.current) {
 								onCardSelect(card.id);

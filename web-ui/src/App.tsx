@@ -67,6 +67,7 @@ import {
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
 import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useLatestValidations } from "@/runtime/use-latest-validations";
 import { usePendingValidations } from "@/runtime/use-pending-validations";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
@@ -297,6 +298,10 @@ export default function App(): ReactElement {
 	});
 
 	const validationByTaskId = usePendingValidations(currentProjectId, latestTaskReadyForReview?.triggeredAt ?? null);
+	const latestValidationByTaskId = useLatestValidations(
+		currentProjectId,
+		latestTaskReadyForReview?.triggeredAt ?? null,
+	);
 	const pendingValidationsForChip = useMemo(() => {
 		const cardsById = new Map<string, { title: string }>();
 		for (const column of board.columns) {
@@ -1077,6 +1082,7 @@ export default function App(): ReactElement {
 												onNavigateToRoadmapItem={handleNavigateToRoadmapItem}
 												highlightCardId={highlightCardId}
 												validationByTaskId={validationByTaskId}
+												latestValidationByTaskId={latestValidationByTaskId}
 											/>
 										)}
 									</div>

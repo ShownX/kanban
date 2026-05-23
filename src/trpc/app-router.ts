@@ -943,6 +943,23 @@ export const runtimeAppRouter = t.router({
 				const { getPendingValidations } = await import("../workspace/validation-lifecycle.js");
 				return await getPendingValidations(ctx.workspaceScope.workspacePath);
 			}),
+		getLatestValidationsPerTask: workspaceProcedure
+			.output(
+				z.array(
+					z.object({
+						roadmapItemId: z.string(),
+						taskId: z.string(),
+						reportResult: z.enum(["pass", "fail", "needs_review"]),
+						validatedAt: z.string(),
+						reviewed: z.boolean(),
+						reviewOutcome: z.enum(["accepted", "rejected", "escalated"]).optional(),
+					}),
+				),
+			)
+			.query(async ({ ctx }) => {
+				const { getLatestValidationsPerTask } = await import("../workspace/validation-lifecycle.js");
+				return await getLatestValidationsPerTask(ctx.workspaceScope.workspacePath);
+			}),
 
 		// ── Project PR creation ──────────────────────────────────
 		createProjectPr: workspaceProcedure

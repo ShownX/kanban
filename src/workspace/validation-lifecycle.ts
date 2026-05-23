@@ -203,6 +203,46 @@ export async function getTaskValidationHistory(
 	return entries;
 }
 
+export interface LatestValidationPerTask {
+	roadmapItemId: string;
+	taskId: string;
+	reportResult: ValidationResult;
+	validatedAt: string;
+	reviewed: boolean;
+	reviewOutcome?: "accepted" | "rejected" | "escalated";
+}
+
+/**
+ * Return the latest validation entry per task across all roadmap items
+ * (reviewed or not). Used by board cards to show a status badge whether the
+ * card is in review or done. The badge for done-column cards typically shows
+ * the reviewer's outcome (accepted/rejected); for review-column cards it
+ * shows the validator's reportResult.
+ */
+export async function getLatestValidationsPerTask(workspacePath: string): Promise<LatestValidationPerTask[]> {
+	const state = await readRoadmapStateFile(workspacePath);
+	const latestByTask = new Map<string, LatestValidationPerTask>();
+
+	for (const [itemId, itemState] of Object.entries(state.itemStates)) {
+		for (const v of itemState.pendingValidations) {
+			const incoming: LatestValidationPerTask = {
+				roadmapItemId: itemId,
+				taskId: v.taskId,
+				reportResult: v.reportResult,
+				validatedAt: v.validatedAt,
+				reviewed: v.reviewed,
+				...(v.reviewOutcome ? { reviewOutcome: v.reviewOutcome } : {}),
+			};
+			const existing = latestByTask.get(v.taskId);
+			if (!existing || Date.parse(incoming.validatedAt) >= Date.parse(existing.validatedAt)) {
+				latestByTask.set(v.taskId, incoming);
+			}
+		}
+	}
+
+	return Array.from(latestByTask.values());
+}
+
 /**
  * Return all unreviewed validation entries across all roadmap items.
  * Used by the UI to show a notification badge.

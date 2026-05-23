@@ -265,6 +265,48 @@ function ValidationBadge({ result }: { result: "pass" | "fail" | "needs_review" 
 	);
 }
 
+const REVIEW_OUTCOME_BADGE_CONFIG: Record<
+	"accepted" | "rejected" | "escalated",
+	{ icon: typeof CheckCircle2; label: string; tooltip: string; className: string }
+> = {
+	accepted: {
+		icon: CheckCircle2,
+		label: "Accepted",
+		tooltip: "PM accepted this deliverable",
+		className: "bg-status-green/15 text-status-green",
+	},
+	rejected: {
+		icon: XCircle,
+		label: "Rejected",
+		tooltip: "PM rejected this deliverable",
+		className: "bg-status-red/15 text-status-red",
+	},
+	escalated: {
+		icon: AlertTriangle,
+		label: "Escalated",
+		tooltip: "PM escalated this deliverable",
+		className: "bg-status-orange/15 text-status-orange",
+	},
+};
+
+function ReviewOutcomeBadge({ outcome }: { outcome: "accepted" | "rejected" | "escalated" }): React.ReactElement {
+	const config = REVIEW_OUTCOME_BADGE_CONFIG[outcome];
+	const Icon = config.icon;
+	return (
+		<Tooltip content={config.tooltip}>
+			<span
+				className={cn(
+					"inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+					config.className,
+				)}
+			>
+				<Icon size={11} />
+				{config.label}
+			</span>
+		</Tooltip>
+	);
+}
+
 export function BoardCard({
 	card,
 	index,
@@ -294,6 +336,7 @@ export function BoardCard({
 	onNavigateToRoadmapItem,
 	highlighted = false,
 	validation,
+	reviewOutcome,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -327,6 +370,8 @@ export function BoardCard({
 	highlighted?: boolean;
 	/** Pending validation entry for this task, used to render a status badge. */
 	validation?: { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean };
+	/** Latest review outcome for the task; rendered as an Accepted/Rejected chip on done cards. */
+	reviewOutcome?: "accepted" | "rejected" | "escalated";
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -636,6 +681,7 @@ export function BoardCard({
 								{validation && columnId === "review" ? (
 									<ValidationBadge result={validation.reportResult} />
 								) : null}
+								{reviewOutcome && columnId === "trash" ? <ReviewOutcomeBadge outcome={reviewOutcome} /> : null}
 								<div className="flex-1 min-w-0">
 									{isEditingTitle ? (
 										<input

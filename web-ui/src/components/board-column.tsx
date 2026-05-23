@@ -44,6 +44,7 @@ export function BoardColumn({
 	onNavigateToRoadmapItem,
 	highlightCardId,
 	validationByTaskId,
+	latestValidationByTaskId,
 }: {
 	column: BoardColumnModel;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
@@ -79,6 +80,14 @@ export function BoardColumn({
 	onNavigateToRoadmapItem?: (itemId: string) => void;
 	highlightCardId?: string | null;
 	validationByTaskId?: Record<string, { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean }>;
+	latestValidationByTaskId?: Record<
+		string,
+		{
+			reportResult: "pass" | "fail" | "needs_review";
+			reviewed: boolean;
+			reviewOutcome?: "accepted" | "rejected" | "escalated";
+		}
+	>;
 }): React.ReactElement {
 	const canCreate = column.id === "backlog" && onCreateTask;
 	const canStartAllTasks = column.id === "backlog" && onStartAllTasks;
@@ -242,6 +251,7 @@ export function BoardColumn({
 											}
 											highlighted={highlightCardId === card.id}
 											validation={validationByTaskId?.[card.id]}
+											reviewOutcome={latestValidationByTaskId?.[card.id]?.reviewOutcome}
 											onSaveTitle={onSaveTitle}
 											onClick={() => {
 												if (column.id === "backlog") {

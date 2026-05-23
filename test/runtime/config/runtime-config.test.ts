@@ -483,4 +483,32 @@ describe.sequential("runtime-config auto agent selection", () => {
 			cleanupHome();
 		}
 	});
+
+	it("persists autoValidateOnReadyForReview when toggled on", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-auto-validate-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-auto-validate-");
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const initial = await loadRuntimeConfig(tempProject);
+				expect(initial.autoValidateOnReadyForReview).toBe(false);
+
+				await updateRuntimeConfig(tempProject, { autoValidateOnReadyForReview: true });
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as { autoValidateOnReadyForReview?: boolean };
+				expect(globalPayload.autoValidateOnReadyForReview).toBe(true);
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.autoValidateOnReadyForReview).toBe(true);
+
+				await updateRuntimeConfig(tempProject, { autoValidateOnReadyForReview: false });
+				const reReloaded = await loadRuntimeConfig(tempProject);
+				expect(reReloaded.autoValidateOnReadyForReview).toBe(false);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
 });

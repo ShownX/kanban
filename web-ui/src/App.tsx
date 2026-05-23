@@ -297,6 +297,20 @@ export default function App(): ReactElement {
 	});
 
 	const validationByTaskId = usePendingValidations(currentProjectId, latestTaskReadyForReview?.triggeredAt ?? null);
+	const pendingValidationsForChip = useMemo(() => {
+		const cardsById = new Map<string, { title: string }>();
+		for (const column of board.columns) {
+			for (const card of column.cards) {
+				cardsById.set(card.id, { title: card.title || card.prompt.slice(0, 60) || card.id });
+			}
+		}
+		return Object.values(validationByTaskId).map((entry) => ({
+			taskId: entry.taskId,
+			title: cardsById.get(entry.taskId)?.title ?? entry.taskId,
+			reportResult: entry.reportResult,
+			validatedAt: entry.validatedAt,
+		}));
+	}, [validationByTaskId, board.columns]);
 
 	const { createTaskBranchOptions, defaultTaskBranchRef } = useTaskBranchOptions({ workspaceGit });
 	const queueTaskStartAfterEdit = useCallback((taskId: string) => {
@@ -933,6 +947,8 @@ export default function App(): ReactElement {
 						hideProjectDependentActions={shouldHideProjectDependentTopBarActions}
 						tokenUsage={tokenUsage}
 						pendingValidationCount={Object.keys(validationByTaskId).length}
+						pendingValidations={pendingValidationsForChip}
+						onSelectPendingValidation={handleCardSelect}
 					/>
 					<div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
 						<div

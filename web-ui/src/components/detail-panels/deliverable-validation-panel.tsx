@@ -26,6 +26,7 @@ import {
 	XCircle,
 } from "lucide-react";
 import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 import { showAppToast } from "@/components/app-toaster";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -42,6 +43,7 @@ type DeliverableResponse = RouterOutputs["runtime"]["readDeliverable"];
 type ValidationReportResponse = RouterOutputs["runtime"]["readValidationReport"];
 type ExperimentLogsResponse = RouterOutputs["runtime"]["readExperimentLogs"];
 type ReviewFeedbackResponse = RouterOutputs["runtime"]["readReviewFeedback"];
+type ValidationHistoryResponse = RouterOutputs["runtime"]["getTaskValidationHistory"];
 
 interface DeliverableJobView {
 	title: string;
@@ -120,6 +122,10 @@ interface DeliverableValidationPanelProps {
 	 * panel updates live as the agent writes files.
 	 */
 	refreshToken?: number;
+	/** Click handler for changed-files entries; jumps the diff viewer to the path. */
+	onSelectFile?: (path: string) => void;
+	/** Paths currently visible in the diff viewer. Used to enable/disable file links. */
+	availableFilePaths?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +137,7 @@ interface DeliverableValidationData {
 	validationReport: ValidationReportResponse | null;
 	experimentLogs: ExperimentLogsResponse;
 	reviewFeedback: ReviewFeedbackResponse | null;
+	validationHistory: ValidationHistoryResponse;
 	isLoading: boolean;
 	refetch: () => void;
 }
@@ -144,6 +151,7 @@ function useDeliverableValidation(
 	const [validationReport, setValidationReport] = useState<ValidationReportResponse | null>(null);
 	const [experimentLogs, setExperimentLogs] = useState<ExperimentLogsResponse>([]);
 	const [reviewFeedback, setReviewFeedback] = useState<ReviewFeedbackResponse | null>(null);
+	const [validationHistory, setValidationHistory] = useState<ValidationHistoryResponse>([]);
 	const [isLoading, setIsLoading] = useState(true);
 	const isMountedRef = useRef(true);
 
@@ -191,9 +199,20 @@ function useDeliverableValidation(
 				if (isMountedRef.current) setReviewFeedback(null);
 			});
 
-		void Promise.all([deliverablePromise, reportPromise, experimentsPromise, feedbackPromise]).then(() => {
-			if (isMountedRef.current) setIsLoading(false);
-		});
+		const historyPromise = trpc.runtime.getTaskValidationHistory
+			.query({ taskId })
+			.then((result) => {
+				if (isMountedRef.current) setValidationHistory(result);
+			})
+			.catch(() => {
+				if (isMountedRef.current) setValidationHistory([]);
+			});
+
+		void Promise.all([deliverablePromise, reportPromise, experimentsPromise, feedbackPromise, historyPromise]).then(
+			() => {
+				if (isMountedRef.current) setIsLoading(false);
+			},
+		);
 	}, [taskId, workspaceId]);
 
 	useEffect(() => {
@@ -203,6 +222,7 @@ function useDeliverableValidation(
 		setValidationReport(null);
 		setExperimentLogs([]);
 		setReviewFeedback(null);
+		setValidationHistory([]);
 		fetchData();
 		return () => {
 			isMountedRef.current = false;
@@ -219,7 +239,15 @@ function useDeliverableValidation(
 		};
 	}, [refreshToken, fetchData]);
 
-	return { deliverable, validationReport, experimentLogs, reviewFeedback, isLoading, refetch: fetchData };
+	return {
+		deliverable,
+		validationReport,
+		experimentLogs,
+		reviewFeedback,
+		validationHistory,
+		isLoading,
+		refetch: fetchData,
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -463,9 +491,13 @@ function WorkSummarySection({
 function DeliverableSection({
 	parsed,
 	rawMarkdown,
+	onSelectFile,
+	availableFilePaths,
 }: {
 	parsed: DeliverableParsed;
 	rawMarkdown: string | null;
+	onSelectFile?: (path: string) => void;
+	availableFilePaths?: string[];
 }): ReactElement {
 	const completedRelative = formatRelativeTime(parsed.completedAt);
 	const [showRaw, setShowRaw] = useState(false);
@@ -492,12 +524,27 @@ function DeliverableSection({
 			</div>
 
 			{showRaw && rawMarkdown ? <RawMarkdownView content={rawMarkdown} /> : <></>}
-			{!showRaw ? <DeliverableParsedBody parsed={parsed} /> : null}
+			{!showRaw ? (
+				<DeliverableParsedBody
+					parsed={parsed}
+					onSelectFile={onSelectFile}
+					availableFilePaths={availableFilePaths}
+				/>
+			) : null}
 		</div>
 	);
 }
 
-function DeliverableParsedBody({ parsed }: { parsed: DeliverableParsed }): ReactElement {
+function DeliverableParsedBody({
+	parsed,
+	onSelectFile,
+	availableFilePaths,
+}: {
+	parsed: DeliverableParsed;
+	onSelectFile?: (path: string) => void;
+	availableFilePaths?: string[];
+}): ReactElement {
+	const availablePathSet = availableFilePaths ? new Set(availableFilePaths) : null;
 	return (
 		<>
 			{/* Summary */}
@@ -539,11 +586,37 @@ function DeliverableParsedBody({ parsed }: { parsed: DeliverableParsed }): React
 						Changed files ({parsed.changedFiles.length})
 					</div>
 					<div className="flex flex-col gap-0.5">
-						{parsed.changedFiles.map((file) => (
-							<div key={file} className="truncate text-xs font-mono text-text-tertiary" title={file}>
-								{file}
-							</div>
-						))}
+						{parsed.changedFiles.map((file) => {
+							const normalized = file.replace(/^\//, "");
+							const isClickable =
+								!!onSelectFile && (availablePathSet == null || availablePathSet.has(normalized));
+							if (isClickable) {
+								return (
+									<button
+										key={file}
+										type="button"
+										onClick={() => onSelectFile?.(normalized)}
+										className="cursor-pointer truncate rounded-sm bg-transparent text-left font-mono text-xs text-text-tertiary hover:bg-surface-3 hover:text-accent"
+										title={`Open ${file} in diff viewer`}
+									>
+										{file}
+									</button>
+								);
+							}
+							return (
+								<div
+									key={file}
+									className="truncate text-xs font-mono text-text-tertiary"
+									title={
+										onSelectFile
+											? `${file}\n(not in current diff — file may not be modified or path differs)`
+											: file
+									}
+								>
+									{file}
+								</div>
+							);
+						})}
 					</div>
 				</div>
 			) : null}
@@ -687,34 +760,44 @@ function ValidationReportSection({
 
 			{/* Review actions — only meaningful when the report needs PM judgment */}
 			{canReview ? (
-				<div className="flex items-center gap-2 pt-1">
-					<Button
-						variant="primary"
-						size="sm"
-						icon={reviewState.pending === "accepted" ? <Spinner size={12} /> : <ThumbsUp size={14} />}
-						disabled={reviewState.pending != null}
-						onClick={() => onReview?.("accepted")}
-					>
-						Accept
-					</Button>
-					<Button
-						variant="danger"
-						size="sm"
-						icon={reviewState.pending === "rejected" ? <Spinner size={12} /> : <ThumbsDown size={14} />}
-						disabled={reviewState.pending != null}
-						onClick={() => onReview?.("rejected")}
-					>
-						Reject
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						icon={reviewState.pending === "escalated" ? <Spinner size={12} /> : <AlertTriangle size={14} />}
-						disabled={reviewState.pending != null}
-						onClick={() => onReview?.("escalated")}
-					>
-						Escalate
-					</Button>
+				<div className="flex flex-col gap-1 pt-1">
+					<div className="flex items-center gap-2">
+						<Button
+							variant="primary"
+							size="sm"
+							icon={reviewState.pending === "accepted" ? <Spinner size={12} /> : <ThumbsUp size={14} />}
+							disabled={reviewState.pending != null}
+							onClick={() => onReview?.("accepted")}
+							title="Accept (A)"
+						>
+							Accept
+						</Button>
+						<Button
+							variant="danger"
+							size="sm"
+							icon={reviewState.pending === "rejected" ? <Spinner size={12} /> : <ThumbsDown size={14} />}
+							disabled={reviewState.pending != null}
+							onClick={() => onReview?.("rejected")}
+							title="Reject (Shift+R)"
+						>
+							Reject
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							icon={reviewState.pending === "escalated" ? <Spinner size={12} /> : <AlertTriangle size={14} />}
+							disabled={reviewState.pending != null}
+							onClick={() => onReview?.("escalated")}
+							title="Escalate (E)"
+						>
+							Escalate
+						</Button>
+					</div>
+					<div className="text-[10px] text-text-tertiary">
+						<kbd className="rounded-sm bg-surface-2 px-1 font-mono">A</kbd> accept{" "}
+						<kbd className="rounded-sm bg-surface-2 px-1 font-mono">⇧R</kbd> reject{" "}
+						<kbd className="rounded-sm bg-surface-2 px-1 font-mono">E</kbd> escalate
+					</div>
 				</div>
 			) : null}
 		</div>
@@ -986,8 +1069,10 @@ export function DeliverableValidationPanel({
 	specSlug,
 	ownedPaths,
 	refreshToken,
+	onSelectFile,
+	availableFilePaths,
 }: DeliverableValidationPanelProps): ReactElement | null {
-	const { deliverable, validationReport, experimentLogs, reviewFeedback, isLoading, refetch } =
+	const { deliverable, validationReport, experimentLogs, reviewFeedback, validationHistory, isLoading, refetch } =
 		useDeliverableValidation(taskId, workspaceId, refreshToken);
 	const [pendingReview, setPendingReview] = useState<ReviewOutcome | null>(null);
 	const [isValidating, setIsValidating] = useState(false);
@@ -1081,6 +1166,34 @@ export function DeliverableValidationPanel({
 		}
 	}, [workspaceId, taskId, refetch]);
 
+	const reportNeedsReview =
+		isValidationReport(report) && (report.result === "fail" || report.result === "needs_review");
+	const hotkeysActive = reportNeedsReview && !noteDialogOutcome && pendingReview == null && roadmapItemId != null;
+	useHotkeys(
+		"a",
+		(event) => {
+			event.preventDefault();
+			handleReview("accepted");
+		},
+		{ enabled: hotkeysActive, enableOnFormTags: false },
+	);
+	useHotkeys(
+		"shift+r",
+		(event) => {
+			event.preventDefault();
+			handleReview("rejected");
+		},
+		{ enabled: hotkeysActive, enableOnFormTags: false },
+	);
+	useHotkeys(
+		"e",
+		(event) => {
+			event.preventDefault();
+			handleReview("escalated");
+		},
+		{ enabled: hotkeysActive, enableOnFormTags: false },
+	);
+
 	if (isLoading) {
 		return (
 			<div className="flex flex-col gap-3 border-t border-border px-3 py-3">
@@ -1112,7 +1225,12 @@ export function DeliverableValidationPanel({
 			) : null}
 			{showStalenessWarning ? <StalenessWarning /> : null}
 			{hasParsedDeliverable ? (
-				<DeliverableSection parsed={parsed} rawMarkdown={deliverableMarkdown} />
+				<DeliverableSection
+					parsed={parsed}
+					rawMarkdown={deliverableMarkdown}
+					onSelectFile={onSelectFile}
+					availableFilePaths={availableFilePaths}
+				/>
 			) : isRoadmapLinkedReviewCard && !hasReport ? (
 				<EmptyDeliverableState
 					canRunValidation={canRunValidation}
@@ -1152,6 +1270,7 @@ export function DeliverableValidationPanel({
 					Re-run validation
 				</button>
 			) : null}
+			{validationHistory.length > 1 ? <ValidationHistorySection history={validationHistory} /> : null}
 			{hasExperiments ? (
 				<ExperimentLogsSection logs={experimentLogs} workspaceId={workspaceId} taskId={taskId} />
 			) : null}
@@ -1165,6 +1284,78 @@ export function DeliverableValidationPanel({
 				}}
 			/>
 		</div>
+	);
+}
+
+function ValidationHistorySection({ history }: { history: ValidationHistoryResponse }): ReactElement | null {
+	const [open, setOpen] = useState(false);
+	if (history.length <= 1) return null;
+	// The latest entry is already shown by ValidationReportSection; skip it here.
+	const previous = history.slice(1);
+	if (previous.length === 0) return null;
+
+	return (
+		<Collapsible.Root open={open} onOpenChange={setOpen}>
+			<Collapsible.Trigger asChild>
+				<button
+					type="button"
+					className="flex w-full items-center gap-1.5 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary hover:text-text-primary"
+				>
+					{open ? (
+						<ChevronDown size={12} className="text-text-tertiary" />
+					) : (
+						<ChevronRight size={12} className="text-text-tertiary" />
+					)}
+					Earlier validations
+					<span className="ml-1 inline-flex items-center rounded-full bg-surface-3 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-text-tertiary">
+						{previous.length}
+					</span>
+				</button>
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				<ul className="mt-1 flex flex-col gap-1">
+					{previous.map((entry, i) => {
+						const validatedRelative = formatRelativeTime(entry.validatedAt);
+						const reviewedRelative = formatRelativeTime(entry.reviewedAt);
+						return (
+							<li
+								key={`${entry.validatedAt}-${i}`}
+								className="flex flex-col gap-0.5 rounded-sm border border-border bg-surface-2 px-2 py-1.5 text-xs"
+							>
+								<div className="flex items-center gap-2">
+									<ResultBadge result={entry.reportResult} />
+									{validatedRelative ? (
+										<span className="text-[10px] text-text-tertiary" title={entry.validatedAt}>
+											validated {validatedRelative}
+										</span>
+									) : null}
+									{entry.reviewOutcome ? (
+										<span
+											className={cn(
+												"ml-auto inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+												entry.reviewOutcome === "accepted" && "bg-status-green/15 text-status-green",
+												entry.reviewOutcome === "rejected" && "bg-status-red/15 text-status-red",
+												entry.reviewOutcome === "escalated" && "bg-status-orange/15 text-status-orange",
+											)}
+										>
+											{entry.reviewOutcome}
+											{reviewedRelative ? (
+												<span className="ml-1 font-normal opacity-70">{reviewedRelative}</span>
+											) : null}
+										</span>
+									) : (
+										<span className="ml-auto text-[10px] text-text-tertiary">unreviewed</span>
+									)}
+								</div>
+								{entry.reviewNote ? (
+									<div className="whitespace-pre-wrap text-text-tertiary">{entry.reviewNote}</div>
+								) : null}
+							</li>
+						);
+					})}
+				</ul>
+			</Collapsible.Content>
+		</Collapsible.Root>
 	);
 }
 

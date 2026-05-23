@@ -290,6 +290,115 @@ function TopBarGitStatusSection({
 	return null;
 }
 
+const PENDING_VALIDATION_RESULT_LABEL: Record<"pass" | "fail" | "needs_review", string> = {
+	pass: "Pass",
+	fail: "Fail",
+	needs_review: "Needs Review",
+};
+
+const PENDING_VALIDATION_RESULT_CLASSNAME: Record<"pass" | "fail" | "needs_review", string> = {
+	pass: "bg-status-green/15 text-status-green",
+	fail: "bg-status-red/15 text-status-red",
+	needs_review: "bg-status-orange/15 text-status-orange",
+};
+
+function formatRelativeTimestamp(value: string): string {
+	const ts = Date.parse(value);
+	if (Number.isNaN(ts)) return value;
+	const diff = Date.now() - ts;
+	if (diff < 0) return new Date(ts).toLocaleString();
+	const seconds = Math.floor(diff / 1000);
+	if (seconds < 60) return seconds <= 1 ? "just now" : `${seconds}s ago`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	if (days < 7) return `${days}d ago`;
+	return new Date(ts).toLocaleDateString();
+}
+
+function PendingValidationsChip({
+	count,
+	items,
+	onSelect,
+}: {
+	count: number;
+	items: Array<{
+		taskId: string;
+		title: string;
+		reportResult: "pass" | "fail" | "needs_review";
+		validatedAt: string;
+	}>;
+	onSelect?: (taskId: string) => void;
+}): React.ReactElement {
+	const [open, setOpen] = useState(false);
+	const tooltipText = `${count} validation${count === 1 ? "" : "s"} awaiting PM review`;
+	const sortedItems = [...items].sort((a, b) => Date.parse(b.validatedAt) - Date.parse(a.validatedAt));
+
+	return (
+		<RadixPopover.Root open={open} onOpenChange={setOpen}>
+			<Tooltip content={tooltipText} side="bottom">
+				<RadixPopover.Trigger asChild>
+					<button
+						type="button"
+						className="mr-1 inline-flex h-7 cursor-pointer items-center gap-1 rounded-full bg-status-orange/15 px-2 text-[11px] font-medium text-status-orange hover:bg-status-orange/25"
+					>
+						<HelpCircle size={12} />
+						{count}
+					</button>
+				</RadixPopover.Trigger>
+			</Tooltip>
+			<RadixPopover.Portal>
+				<RadixPopover.Content
+					side="bottom"
+					align="end"
+					sideOffset={6}
+					className="z-50 w-80 max-w-[90vw] rounded-md border border-border bg-surface-1 p-1 shadow-lg"
+					style={{ animation: "kb-tooltip-show 100ms ease" }}
+				>
+					<div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+						Pending review
+					</div>
+					{sortedItems.length === 0 ? (
+						<div className="px-2 py-2 text-xs text-text-tertiary">No details available.</div>
+					) : (
+						<ul className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
+							{sortedItems.map((item) => (
+								<li key={item.taskId}>
+									<button
+										type="button"
+										onClick={() => {
+											if (onSelect) onSelect(item.taskId);
+											setOpen(false);
+										}}
+										className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface-3"
+									>
+										<span
+											className={cn(
+												"shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+												PENDING_VALIDATION_RESULT_CLASSNAME[item.reportResult],
+											)}
+										>
+											{PENDING_VALIDATION_RESULT_LABEL[item.reportResult]}
+										</span>
+										<div className="min-w-0 flex-1">
+											<div className="truncate text-xs font-medium text-text-primary">{item.title}</div>
+											<div className="text-[10px] text-text-tertiary">
+												{formatRelativeTimestamp(item.validatedAt)}
+											</div>
+										</div>
+									</button>
+								</li>
+							))}
+						</ul>
+					)}
+				</RadixPopover.Content>
+			</RadixPopover.Portal>
+		</RadixPopover.Root>
+	);
+}
+
 export function TopBar({
 	onToggleSidebar,
 	onBack,
@@ -328,6 +437,8 @@ export function TopBar({
 	hideProjectDependentActions = false,
 	tokenUsage,
 	pendingValidationCount = 0,
+	pendingValidations,
+	onSelectPendingValidation,
 }: {
 	onToggleSidebar?: () => void;
 	onBack?: () => void;
@@ -367,6 +478,15 @@ export function TopBar({
 	tokenUsage?: RuntimeTokenUsage | null;
 	/** Number of un-reviewed validations across the workspace; renders a chip when > 0. */
 	pendingValidationCount?: number;
+	/** Detail rows for the pending-validations popover; ordered by validatedAt desc. */
+	pendingValidations?: Array<{
+		taskId: string;
+		title: string;
+		reportResult: "pass" | "fail" | "needs_review";
+		validatedAt: string;
+	}>;
+	/** Open the card detail view for the given task. */
+	onSelectPendingValidation?: (taskId: string) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const displayWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
@@ -560,14 +680,11 @@ export function TopBar({
 					{!isMobile ? (
 						<>
 							{!hideProjectDependentActions && pendingValidationCount > 0 ? (
-								<Tooltip
-									content={`${pendingValidationCount} validation${pendingValidationCount === 1 ? "" : "s"} awaiting PM review`}
-								>
-									<span className="mr-1 inline-flex h-7 items-center gap-1 rounded-full bg-status-orange/15 px-2 text-[11px] font-medium text-status-orange">
-										<HelpCircle size={12} />
-										{pendingValidationCount}
-									</span>
-								</Tooltip>
+								<PendingValidationsChip
+									count={pendingValidationCount}
+									items={pendingValidations ?? []}
+									onSelect={onSelectPendingValidation}
+								/>
 							) : null}
 							{onOpenRoadmap && !hideProjectDependentActions ? (
 								<Button

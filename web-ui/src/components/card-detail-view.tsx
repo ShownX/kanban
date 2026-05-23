@@ -801,6 +801,8 @@ export function CardDetailView({
 									specSlug={selection.card.specSlug}
 									ownedPaths={selection.card.ownedPaths}
 									refreshToken={deliverablePanelRefreshToken}
+									onSelectFile={setSelectedPath}
+									availableFilePaths={availablePaths}
 								/>
 							) : null}
 						</div>
@@ -959,6 +961,8 @@ export function CardDetailView({
 														specSlug={selection.card.specSlug}
 														ownedPaths={selection.card.ownedPaths}
 														refreshToken={deliverablePanelRefreshToken}
+														onSelectFile={setSelectedPath}
+														availableFilePaths={availablePaths}
 													/>
 												) : null}
 											</div>

@@ -124,6 +124,45 @@ export interface PendingValidationSummary {
 	validatedAt: string;
 }
 
+export interface TaskValidationHistoryEntry {
+	reportResult: ValidationResult;
+	validatedAt: string;
+	reviewed: boolean;
+	reviewOutcome?: "accepted" | "rejected" | "escalated";
+	reviewNote?: string;
+	reviewedAt?: string;
+}
+
+/**
+ * Return all validation entries (reviewed and pending) for a specific task.
+ * Sorted newest-first by validatedAt. Used by the panel to show review
+ * history beneath the latest report.
+ */
+export async function getTaskValidationHistory(
+	workspacePath: string,
+	taskId: string,
+): Promise<TaskValidationHistoryEntry[]> {
+	const state = await readRoadmapStateFile(workspacePath);
+	const entries: TaskValidationHistoryEntry[] = [];
+
+	for (const itemState of Object.values(state.itemStates)) {
+		for (const v of itemState.pendingValidations) {
+			if (v.taskId !== taskId) continue;
+			entries.push({
+				reportResult: v.reportResult,
+				validatedAt: v.validatedAt,
+				reviewed: v.reviewed,
+				...(v.reviewOutcome ? { reviewOutcome: v.reviewOutcome } : {}),
+				...(v.reviewNote ? { reviewNote: v.reviewNote } : {}),
+				...(v.reviewedAt ? { reviewedAt: v.reviewedAt } : {}),
+			});
+		}
+	}
+
+	entries.sort((a, b) => Date.parse(b.validatedAt) - Date.parse(a.validatedAt));
+	return entries;
+}
+
 /**
  * Return all unreviewed validation entries across all roadmap items.
  * Used by the UI to show a notification badge.

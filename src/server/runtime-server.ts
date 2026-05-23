@@ -215,6 +215,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				getScopedClineTaskSessionService,
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastRuntimeProjectsUpdated: deps.runtimeStateHub.broadcastRuntimeProjectsUpdated,
+				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 				buildWorkspaceStateSnapshot: deps.workspaceRegistry.buildWorkspaceStateSnapshot,
 			}),
 			projectsApi: createProjectsApi({

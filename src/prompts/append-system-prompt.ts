@@ -598,6 +598,7 @@ You do NOT write code. You do NOT make implementation decisions. You only assess
 - **Deliverable:** \`${deliverablePath}\`
 - **Owned paths:** ${ownedPathsList}${specVersion != null ? `\n- **Current spec version:** ${specVersion}` : ""}
 - **Prior reviewer feedback (if any):** \`.kanban/tasks/${taskId}/review-feedback.md\` — present only when the previous deliverable was rejected or escalated and the agent re-ran. If it exists, read it first; the agent's task was to address those concerns.
+- **Prior validation history (if any):** \`.kanban/tasks/${taskId}/validation-report.md\` — when re-validating, this file may already contain a \`## Reviews\` section listing past PM outcomes (Accepted / Rejected / Escalated) with notes. Read it to understand which concerns the agent has already addressed and avoid re-flagging issues that the PM already accepted.
 
 ## Checks to Perform
 

@@ -43,6 +43,7 @@ export interface CreateWorkspaceApiDependencies {
 	}) => Promise<ClineTaskSessionService>;
 	broadcastRuntimeWorkspaceStateUpdated: (workspaceId: string, workspacePath: string) => Promise<void> | void;
 	broadcastRuntimeProjectsUpdated: (preferredCurrentProjectId: string | null) => Promise<void> | void;
+	broadcastTaskReadyForReview?: (workspaceId: string, taskId: string, workspacePath?: string) => void;
 	buildWorkspaceStateSnapshot: (workspaceId: string, workspacePath: string) => Promise<RuntimeWorkspaceStateResponse>;
 }
 
@@ -324,6 +325,8 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				cwd: workspaceScope.workspacePath,
 				taskId: body.taskId,
 				baseRef: body.baseRef,
+				role: body.role,
+				specSlug: body.specSlug,
 			});
 		},
 		deleteWorktree: async (workspaceScope, input) => {
@@ -331,6 +334,8 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			return await deleteTaskWorktree({
 				repoPath: workspaceScope.workspacePath,
 				taskId: body.taskId,
+				baseRef: body.baseRef,
+				role: body.role,
 			});
 		},
 		loadTaskContext: async (workspaceScope, input) => {
@@ -369,9 +374,44 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				for (const summary of terminalManager.listSummaries()) {
 					input.sessions[summary.taskId] = summary;
 				}
+				// Capture the previous review-column membership so we can detect cards
+				// the user just dragged into review and broadcast a ready_for_review
+				// event (which the runtime hub uses to auto-validate, if enabled).
+				const previousReviewTaskIds = new Set<string>();
+				if (deps.broadcastTaskReadyForReview) {
+					try {
+						const previousState = await deps.buildWorkspaceStateSnapshot(
+							workspaceScope.workspaceId,
+							workspaceScope.workspacePath,
+						);
+						const previousReviewColumn = previousState.board.columns.find((column) => column.id === "review");
+						if (previousReviewColumn) {
+							for (const card of previousReviewColumn.cards) {
+								previousReviewTaskIds.add(card.id);
+							}
+						}
+					} catch {
+						// If we can't read the prior state, skip the diff — we'll fall
+						// back to the agent-triggered ready-for-review path.
+					}
+				}
 				const response = await saveWorkspaceState(workspaceScope.workspacePath, input);
 				void deps.broadcastRuntimeWorkspaceStateUpdated(workspaceScope.workspaceId, workspaceScope.workspacePath);
 				void deps.broadcastRuntimeProjectsUpdated(workspaceScope.workspaceId);
+				if (deps.broadcastTaskReadyForReview) {
+					const reviewColumn = input.board.columns.find((column) => column.id === "review");
+					if (reviewColumn) {
+						for (const card of reviewColumn.cards) {
+							if (!previousReviewTaskIds.has(card.id) && card.roadmapItemId) {
+								deps.broadcastTaskReadyForReview(
+									workspaceScope.workspaceId,
+									card.id,
+									workspaceScope.workspacePath,
+								);
+							}
+						}
+					}
+				}
 				return response;
 			} catch (error) {
 				if (error instanceof WorkspaceStateConflictError) {

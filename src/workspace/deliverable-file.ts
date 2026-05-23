@@ -6,7 +6,6 @@ import { z } from "zod";
 /**
  * Deliverable file written by a task agent at `to_review` time.
  * Lives in the task's worktree at `.kanban/tasks/<taskId>/deliverable.md`.
- * An optional `.json` sidecar is generated from the markdown for machine use.
  */
 
 const DELIVERABLE_DIR = ".kanban/tasks";
@@ -17,10 +16,6 @@ export function getDeliverableDirPath(worktreePath: string, taskId: string): str
 
 export function getDeliverableMdPath(worktreePath: string, taskId: string): string {
 	return join(getDeliverableDirPath(worktreePath, taskId), "deliverable.md");
-}
-
-export function getDeliverableJsonPath(worktreePath: string, taskId: string): string {
-	return join(getDeliverableDirPath(worktreePath, taskId), "deliverable.json");
 }
 
 // --- Schema ---
@@ -67,16 +62,6 @@ export const deliverableSchema = z.object({
 export type Deliverable = z.infer<typeof deliverableSchema>;
 
 // --- Reader ---
-
-export async function readDeliverableJson(worktreePath: string, taskId: string): Promise<Deliverable | null> {
-	const jsonPath = getDeliverableJsonPath(worktreePath, taskId);
-	try {
-		const raw = await readFile(jsonPath, "utf8");
-		return deliverableSchema.parse(JSON.parse(raw));
-	} catch {
-		return null;
-	}
-}
 
 export async function readDeliverableMd(worktreePath: string, taskId: string): Promise<string | null> {
 	const mdPath = getDeliverableMdPath(worktreePath, taskId);

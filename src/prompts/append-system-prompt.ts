@@ -629,6 +629,10 @@ ${specVersion != null ? `The current spec version is **${specVersion}**. If the 
 
 Read recent entries in \`.kanban/shared-memory/changelog.jsonl\` from agent \`${specSlug}\`. Verify that the deliverable's "Changed files" section aligns with what the changelog reports. Flag files that appear in one but not the other.
 
+### 6. Experiment Logs
+
+Read every file under \`.kanban/tasks/${taskId}/experiments/\` (\`.log\`, \`.md\`, \`.txt\`, \`.json\`). Scan each for failure markers — \`FAIL\`, \`ERROR\`, \`Traceback\`, \`unhandled exception\`, \`ELIFECYCLE\`. If any log contains a failure marker, flag this check as Needs Review and list the offending file(s) in the report. If there are no logs (or no markers), pass.
+
 ## Output
 
 Write the validation report to:
@@ -682,14 +686,18 @@ OR
 OR
 ⚠ Discrepancies: <list>
 
+## Experiment Logs
+✓ N experiment log(s) reviewed; no failure markers detected
+OR
+⚠ M of N experiment log(s) contain failure markers: <file1 (FAIL), file2 (ERROR), …>
+OR
+✓ No experiment logs found
+
 ## Summary
 <1-2 sentence objective assessment>
 \`\`\`
 
-If the deliverable references experiments, ALSO read the files in
-\`.kanban/tasks/${taskId}/experiments/\` and incorporate any obvious failures
-or anomalies into the relevant check. Do NOT copy log contents into the
-report — reference them by filename in **Evidence:**.
+Reference experiment-log files by filename in **Evidence:**; do NOT paste their contents into the report.
 
 ## Rules
 

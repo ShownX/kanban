@@ -1,7 +1,20 @@
-import { Bot, Check, ChevronDown, ChevronRight, CircleDot, Clock, User } from "lucide-react";
+import {
+	Bot,
+	Check,
+	CheckCircle2,
+	ChevronDown,
+	ChevronRight,
+	CircleDot,
+	Clock,
+	HelpCircle,
+	User,
+	XCircle,
+} from "lucide-react";
 import { type ReactElement, useState } from "react";
 
 import type { BoardCard, BoardColumnId, BoardData, RoadmapItem } from "@/types";
+
+type ValidationResult = "pass" | "fail" | "needs_review";
 
 interface RoadmapTasksSummaryProps {
 	board: BoardData;
@@ -9,6 +22,8 @@ interface RoadmapTasksSummaryProps {
 	agentCreatedTaskIdsByItemId: Record<string, string[]>;
 	onOpenCreateTasksDialog?: (itemId: string) => void;
 	onPromoteAgentTasks?: (itemId: string, taskIds: string[]) => void;
+	/** Map of taskId -> latest pending validation, used to render outcome chips. */
+	validationByTaskId?: Record<string, { reportResult: ValidationResult }>;
 }
 
 interface TaskRenderInfo {
@@ -18,6 +33,7 @@ interface TaskRenderInfo {
 	columnId: BoardColumnId | null;
 	agentCreated: boolean;
 	promotable: boolean;
+	validation: ValidationResult | null;
 }
 
 function findTaskInBoard(board: BoardData, taskId: string): { card: BoardCard; columnId: BoardColumnId } | null {
@@ -62,10 +78,14 @@ export function RoadmapTasksSummary({
 	agentCreatedTaskIdsByItemId,
 	onOpenCreateTasksDialog,
 	onPromoteAgentTasks,
+	validationByTaskId,
 }: RoadmapTasksSummaryProps): ReactElement | null {
 	if (roadmap.length === 0) {
 		return null;
 	}
+
+	const lookupValidation = (taskId: string): ValidationResult | null =>
+		validationByTaskId?.[taskId]?.reportResult ?? null;
 
 	const renderItems = roadmap.map((item) => {
 		const promotedIds = new Set(item.tasks.map((ref) => ref.taskId));
@@ -78,6 +98,7 @@ export function RoadmapTasksSummary({
 				columnId: found?.columnId ?? null,
 				agentCreated: ref.agentCreated === true,
 				promotable: false,
+				validation: lookupValidation(ref.taskId),
 			};
 		});
 		const agentOnlyIds = (agentCreatedTaskIdsByItemId[item.id] ?? []).filter((taskId) => !promotedIds.has(taskId));
@@ -90,9 +111,16 @@ export function RoadmapTasksSummary({
 				columnId: found?.columnId ?? null,
 				agentCreated: true,
 				promotable: found !== null,
+				validation: lookupValidation(taskId),
 			};
 		});
-		return { item, promoted, agentOnly };
+		const allTaskInfos = [...promoted, ...agentOnly];
+		const validationCounts = {
+			pass: allTaskInfos.filter((info) => info.validation === "pass").length,
+			fail: allTaskInfos.filter((info) => info.validation === "fail").length,
+			needs_review: allTaskInfos.filter((info) => info.validation === "needs_review").length,
+		};
+		return { item, promoted, agentOnly, validationCounts };
 	});
 
 	return (
@@ -103,7 +131,7 @@ export function RoadmapTasksSummary({
 					Agent-created tasks are kept separate until you promote them into the spec.
 				</p>
 			</div>
-			{renderItems.map(({ item, promoted, agentOnly }) => {
+			{renderItems.map(({ item, promoted, agentOnly, validationCounts }) => {
 				const hasAnyTasks = promoted.length + agentOnly.length > 0;
 				return (
 					<div key={item.id} className="mb-5 rounded-md border border-border bg-surface-1 p-3">
@@ -112,6 +140,7 @@ export function RoadmapTasksSummary({
 								<h3 className="text-sm font-semibold text-text-primary m-0 truncate">{item.title}</h3>
 								<p className="text-text-tertiary font-mono text-[11px] m-0">{item.id}</p>
 							</div>
+							<ValidationCounts counts={validationCounts} />
 						</div>
 
 						<SubsectionDetails item={item} />
@@ -165,6 +194,7 @@ function TaskRow({ info }: { info: TaskRenderInfo }): ReactElement {
 			<ProvenanceIcon size={12} className="mt-0.5 shrink-0 text-text-tertiary" />
 			<code className="shrink-0 text-text-tertiary font-mono">{info.taskId}</code>
 			<span className="min-w-0 flex-1 truncate text-text-primary">{info.title || "(untitled)"}</span>
+			{info.validation ? <ValidationChip result={info.validation} /> : null}
 			<StatusIcon size={12} className={`mt-0.5 shrink-0 ${status.color}`} />
 			<span className={`shrink-0 ${status.color}`}>{status.label}</span>
 			{info.agentCreated && !info.promotable ? null : info.agentCreated && info.promotable ? (
@@ -174,8 +204,61 @@ function TaskRow({ info }: { info: TaskRenderInfo }): ReactElement {
 	);
 }
 
+const VALIDATION_CHIP_CONFIG: Record<
+	ValidationResult,
+	{ label: string; className: string; Icon: typeof CheckCircle2 | typeof XCircle | typeof HelpCircle }
+> = {
+	pass: { label: "Pass", className: "bg-status-green/15 text-status-green", Icon: CheckCircle2 },
+	fail: { label: "Fail", className: "bg-status-red/15 text-status-red", Icon: XCircle },
+	needs_review: { label: "Review", className: "bg-status-orange/15 text-status-orange", Icon: HelpCircle },
+};
+
+function ValidationChip({ result }: { result: ValidationResult }): ReactElement {
+	const config = VALIDATION_CHIP_CONFIG[result];
+	const Icon = config.Icon;
+	return (
+		<span
+			className={`inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${config.className}`}
+		>
+			<Icon size={10} />
+			{config.label}
+		</span>
+	);
+}
+
+function ValidationCounts({
+	counts,
+}: {
+	counts: { pass: number; fail: number; needs_review: number };
+}): ReactElement | null {
+	const total = counts.pass + counts.fail + counts.needs_review;
+	if (total === 0) return null;
+	return (
+		<div className="flex shrink-0 items-center gap-1" title="Pending validation outcomes">
+			{counts.pass > 0 ? (
+				<span className="inline-flex items-center gap-0.5 rounded-full bg-status-green/15 px-1.5 py-0.5 text-[10px] font-medium text-status-green">
+					<CheckCircle2 size={10} />
+					{counts.pass}
+				</span>
+			) : null}
+			{counts.needs_review > 0 ? (
+				<span className="inline-flex items-center gap-0.5 rounded-full bg-status-orange/15 px-1.5 py-0.5 text-[10px] font-medium text-status-orange">
+					<HelpCircle size={10} />
+					{counts.needs_review}
+				</span>
+			) : null}
+			{counts.fail > 0 ? (
+				<span className="inline-flex items-center gap-0.5 rounded-full bg-status-red/15 px-1.5 py-0.5 text-[10px] font-medium text-status-red">
+					<XCircle size={10} />
+					{counts.fail}
+				</span>
+			) : null}
+		</div>
+	);
+}
+
 function SubsectionDetails({ item }: { item: RoadmapItem }): ReactElement | null {
-	const hasContent = item.requirements || item.design || item.openQuestions.length > 0;
+	const hasContent = item.goal || item.openQuestions.length > 0;
 	const [expanded, setExpanded] = useState(false);
 
 	if (!hasContent) return null;
@@ -199,19 +282,11 @@ function SubsectionDetails({ item }: { item: RoadmapItem }): ReactElement | null
 			</button>
 			{expanded ? (
 				<div className="mt-2 space-y-2 border-l-2 border-border pl-3">
-					{item.requirements ? (
+					{item.goal ? (
 						<div>
-							<h4 className="text-[11px] font-semibold uppercase text-text-tertiary m-0">Requirements</h4>
+							<h4 className="text-[11px] font-semibold uppercase text-text-tertiary m-0">Goal</h4>
 							<pre className="mt-1 whitespace-pre-wrap text-xs text-text-secondary font-mono bg-surface-0 rounded p-2 m-0 overflow-x-auto">
-								{item.requirements}
-							</pre>
-						</div>
-					) : null}
-					{item.design ? (
-						<div>
-							<h4 className="text-[11px] font-semibold uppercase text-text-tertiary m-0">Design</h4>
-							<pre className="mt-1 whitespace-pre-wrap text-xs text-text-secondary font-mono bg-surface-0 rounded p-2 m-0 overflow-x-auto">
-								{item.design}
+								{item.goal}
 							</pre>
 						</div>
 					) : null}

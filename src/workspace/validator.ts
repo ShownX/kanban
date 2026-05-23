@@ -16,6 +16,7 @@ export const validationCheckNameSchema = z.enum([
 	"interface_compliance",
 	"spec_staleness",
 	"changelog_consistency",
+	"experiment_logs",
 ]);
 export type ValidationCheckName = z.infer<typeof validationCheckNameSchema>;
 
@@ -447,6 +448,63 @@ async function checkChangelogConsistency(input: ChangelogConsistencyInput): Prom
 	};
 }
 
+interface ExperimentLogsCheckInput {
+	workspacePath: string;
+	taskId: string;
+}
+
+const EXPERIMENT_LOG_FAILURE_MARKERS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
+	{ pattern: /^\s*(?:FAIL|FAILED|FAILURE)\b/im, label: "FAIL" },
+	{ pattern: /^\s*ERROR\b/im, label: "ERROR" },
+	{ pattern: /^\s*Traceback /m, label: "Traceback" },
+	{ pattern: /\bUnhandled (?:rejection|exception)\b/i, label: "unhandled exception" },
+	// `npm` / `pnpm` style failure summaries.
+	{ pattern: /\bELIFECYCLE\b/, label: "lifecycle exit" },
+];
+
+/**
+ * Scan experiment log files for obvious failure markers (FAIL, ERROR,
+ * Traceback, etc). When the agent ran experiments and any of them shows a
+ * failure, surface that in the validation report so reviewers don't miss it.
+ */
+async function checkExperimentLogs(input: ExperimentLogsCheckInput): Promise<ValidationCheckResult> {
+	const { workspacePath, taskId } = input;
+	const { readExperimentLogs } = await import("./experiment-log-file.js");
+	const logs = await readExperimentLogs(workspacePath, taskId);
+
+	if (logs.length === 0) {
+		return {
+			check: "experiment_logs",
+			status: "pass",
+			details: "No experiment logs found.",
+		};
+	}
+
+	const flagged: string[] = [];
+	for (const log of logs) {
+		for (const { pattern, label } of EXPERIMENT_LOG_FAILURE_MARKERS) {
+			if (pattern.test(log.content)) {
+				flagged.push(`${log.name} (${label})`);
+				break; // one marker per log is enough
+			}
+		}
+	}
+
+	if (flagged.length > 0) {
+		return {
+			check: "experiment_logs",
+			status: "needs_review",
+			details: `${flagged.length} of ${logs.length} experiment log(s) contain failure markers: ${flagged.join(", ")}.`,
+		};
+	}
+
+	return {
+		check: "experiment_logs",
+		status: "pass",
+		details: `${logs.length} experiment log(s) reviewed; no failure markers detected.`,
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Overall result computation
 // ---------------------------------------------------------------------------
@@ -494,15 +552,22 @@ export interface ValidateDeliverableOptions {
 export async function validateDeliverable(options: ValidateDeliverableOptions): Promise<ValidationReport> {
 	const { workspacePath, taskId, specSlug, roadmapItemId, ownedPaths, specVersion } = options;
 
-	// Run all five checks in parallel
-	const [requirementsCoverage, scopeCompliance, interfaceCompliance, specStaleness, changelogConsistency] =
-		await Promise.all([
-			checkRequirementsCoverage({ workspacePath, specSlug, taskId }),
-			checkScopeCompliance({ workspacePath, taskId, ownedPaths }),
-			checkInterfaceCompliance({ workspacePath, specSlug }),
-			checkSpecStaleness({ workspacePath, taskId, specVersion }),
-			checkChangelogConsistency({ workspacePath, taskId, specSlug }),
-		]);
+	// Run all checks in parallel
+	const [
+		requirementsCoverage,
+		scopeCompliance,
+		interfaceCompliance,
+		specStaleness,
+		changelogConsistency,
+		experimentLogs,
+	] = await Promise.all([
+		checkRequirementsCoverage({ workspacePath, specSlug, taskId }),
+		checkScopeCompliance({ workspacePath, taskId, ownedPaths }),
+		checkInterfaceCompliance({ workspacePath, specSlug }),
+		checkSpecStaleness({ workspacePath, taskId, specVersion }),
+		checkChangelogConsistency({ workspacePath, taskId, specSlug }),
+		checkExperimentLogs({ workspacePath, taskId }),
+	]);
 
 	const checks: ValidationCheckResult[] = [
 		requirementsCoverage,
@@ -510,6 +575,7 @@ export async function validateDeliverable(options: ValidateDeliverableOptions): 
 		interfaceCompliance,
 		specStaleness,
 		changelogConsistency,
+		experimentLogs,
 	];
 
 	const result = computeOverallResult(checks);
@@ -606,6 +672,8 @@ function formatCheckHeading(checkName: ValidationCheckName): string {
 			return "Spec Staleness";
 		case "changelog_consistency":
 			return "Changelog Consistency";
+		case "experiment_logs":
+			return "Experiment Logs";
 	}
 }
 
@@ -930,6 +998,8 @@ function parseCheckHeading(heading: string): ValidationCheckName | null {
 			return "spec_staleness";
 		case "Changelog Consistency":
 			return "changelog_consistency";
+		case "Experiment Logs":
+			return "experiment_logs";
 		default:
 			return null;
 	}

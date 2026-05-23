@@ -139,6 +139,60 @@ describe("getTaskValidationHistory", () => {
 	});
 });
 
+describe("experiment_logs check", () => {
+	it("flags logs containing FAIL/ERROR markers as needs_review", async () => {
+		const { validateDeliverable } = await import("../../src/workspace/validator");
+		await withTempWorkspace(async (workspacePath) => {
+			// Seed a deliverable.md so other checks have something to inspect.
+			const taskDir = join(workspacePath, ".kanban", "tasks", "t_log_fail");
+			mkdirSync(taskDir, { recursive: true });
+			writeFileSync(
+				join(taskDir, "deliverable.md"),
+				`# Task t_log_fail\n\n**Roadmap item:** \`roadmap_x\`\n\n## Summary\nDid the thing.\n`,
+				"utf8",
+			);
+			const expDir = join(taskDir, "experiments");
+			mkdirSync(expDir, { recursive: true });
+			writeFileSync(join(expDir, "good.log"), "tests passed\n", "utf8");
+			writeFileSync(join(expDir, "bad.log"), "running migration\nERROR: column foo does not exist\n", "utf8");
+
+			const report = await validateDeliverable({
+				workspacePath,
+				taskId: "t_log_fail",
+				specSlug: "user-auth",
+				roadmapItemId: "roadmap_x",
+				ownedPaths: [],
+			});
+			const experimentCheck = report.checks.find((c) => c.check === "experiment_logs");
+			expect(experimentCheck?.status).toBe("needs_review");
+			expect(experimentCheck?.details).toContain("bad.log");
+		});
+	});
+
+	it("passes when no experiment logs exist", async () => {
+		const { validateDeliverable } = await import("../../src/workspace/validator");
+		await withTempWorkspace(async (workspacePath) => {
+			const taskDir = join(workspacePath, ".kanban", "tasks", "t_no_logs");
+			mkdirSync(taskDir, { recursive: true });
+			writeFileSync(
+				join(taskDir, "deliverable.md"),
+				`# Task t_no_logs\n\n**Roadmap item:** \`roadmap_x\`\n\n## Summary\nDid the thing.\n`,
+				"utf8",
+			);
+			const report = await validateDeliverable({
+				workspacePath,
+				taskId: "t_no_logs",
+				specSlug: "user-auth",
+				roadmapItemId: "roadmap_x",
+				ownedPaths: [],
+			});
+			const experimentCheck = report.checks.find((c) => c.check === "experiment_logs");
+			expect(experimentCheck?.status).toBe("pass");
+			expect(experimentCheck?.details).toContain("No experiment logs");
+		});
+	});
+});
+
 describe("getLatestValidationsPerTask", () => {
 	it("returns an empty array when no validations recorded", async () => {
 		await withTempWorkspace(async (workspacePath) => {

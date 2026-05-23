@@ -511,6 +511,14 @@ export const runtimeStateStreamTaskReadyForReviewMessageSchema = z.object({
 	workspaceId: z.string(),
 	taskId: z.string(),
 	triggeredAt: z.number(),
+	/**
+	 * What caused the broadcast. `"agent"` is the original trigger from the
+	 * task agent; `"auto-validate"` is a follow-up the runtime sends after
+	 * automatically running the validator so the UI can refresh + notify.
+	 */
+	triggeredBy: z.enum(["agent", "auto-validate"]).optional(),
+	/** Validator outcome on auto-validate; absent for plain agent triggers. */
+	autoValidateResult: z.enum(["pass", "fail", "needs_review"]).optional(),
 });
 export type RuntimeStateStreamTaskReadyForReviewMessage = z.infer<
 	typeof runtimeStateStreamTaskReadyForReviewMessageSchema

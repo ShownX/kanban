@@ -392,6 +392,8 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 					workspaceId,
 					taskId,
 					triggeredAt: Date.now(),
+					triggeredBy: "auto-validate",
+					autoValidateResult: report.result,
 				};
 				for (const client of subsequentClients) {
 					sendRuntimeStateMessage(client, refreshPayload);

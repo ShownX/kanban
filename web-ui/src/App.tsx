@@ -312,6 +312,28 @@ export default function App(): ReactElement {
 		}));
 	}, [validationByTaskId, board.columns]);
 
+	// Toast a hint when the runtime hub auto-validates a deliverable, so the
+	// user notices that a fresh report just landed without reading the panel.
+	const seenAutoValidateEventRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!latestTaskReadyForReview || latestTaskReadyForReview.triggeredBy !== "auto-validate") return;
+		const key = `${latestTaskReadyForReview.workspaceId}:${latestTaskReadyForReview.taskId}:${latestTaskReadyForReview.triggeredAt}`;
+		if (seenAutoValidateEventRef.current === key) return;
+		seenAutoValidateEventRef.current = key;
+		const result = latestTaskReadyForReview.autoValidateResult;
+		const intent =
+			result === "pass" ? "success" : result === "fail" ? "danger" : ("warning" as "success" | "danger" | "warning");
+		const message =
+			result === "pass"
+				? "Auto-validation passed."
+				: result === "fail"
+					? "Auto-validation failed — needs your review."
+					: result === "needs_review"
+						? "Auto-validation needs review."
+						: "Auto-validation finished.";
+		showAppToast({ intent, message, timeout: 4000 });
+	}, [latestTaskReadyForReview]);
+
 	const { createTaskBranchOptions, defaultTaskBranchRef } = useTaskBranchOptions({ workspaceGit });
 	const queueTaskStartAfterEdit = useCallback((taskId: string) => {
 		setPendingTaskStartAfterEditId(taskId);

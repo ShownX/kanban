@@ -79,6 +79,7 @@ export async function reviewValidation(
 		throw new Error(`No unreviewed validation found for taskId="${taskId}" on roadmap item "${roadmapItemId}"`);
 	}
 
+	const reviewedAt = new Date().toISOString();
 	const updatedValidations = [...itemState.pendingValidations];
 	const current = updatedValidations[idx];
 	const trimmedNote = note?.trim();
@@ -87,7 +88,7 @@ export async function reviewValidation(
 			...current,
 			reviewed: true,
 			reviewOutcome: outcome,
-			reviewedAt: new Date().toISOString(),
+			reviewedAt,
 			...(trimmedNote ? { reviewNote: trimmedNote } : {}),
 		};
 	}
@@ -100,8 +101,6 @@ export async function reviewValidation(
 
 	const next = setItemState(state, roadmapItemId, updatedItem);
 	await writeRoadmapStateFile(workspacePath, next);
-
-	const reviewedAt = new Date().toISOString();
 
 	// Persist the review into validation-report.md so the history travels with
 	// git (roadmap-state.json is gitignored).
@@ -148,6 +147,14 @@ export interface TaskValidationHistoryEntry {
  * Return all validation entries (reviewed and pending) for a specific task.
  * Sorted newest-first by validatedAt. Used by the panel to show review
  * history beneath the latest report.
+ *
+ * Merges two sources:
+ * 1. roadmap-state.json entries (gitignored, but live on the host)
+ * 2. validation-report.md `## Reviews` entries (committed to git, so review
+ *    history survives clones / state-file deletion)
+ *
+ * Reviews from the report file are matched by reviewedAt timestamp; only
+ * unmatched entries are added so we don't double-count.
  */
 export async function getTaskValidationHistory(
 	workspacePath: string,
@@ -155,10 +162,12 @@ export async function getTaskValidationHistory(
 ): Promise<TaskValidationHistoryEntry[]> {
 	const state = await readRoadmapStateFile(workspacePath);
 	const entries: TaskValidationHistoryEntry[] = [];
+	const seenReviewedAt = new Set<string>();
 
 	for (const itemState of Object.values(state.itemStates)) {
 		for (const v of itemState.pendingValidations) {
 			if (v.taskId !== taskId) continue;
+			if (v.reviewedAt) seenReviewedAt.add(v.reviewedAt);
 			entries.push({
 				reportResult: v.reportResult,
 				validatedAt: v.validatedAt,
@@ -170,7 +179,27 @@ export async function getTaskValidationHistory(
 		}
 	}
 
-	entries.sort((a, b) => Date.parse(b.validatedAt) - Date.parse(a.validatedAt));
+	const { readValidationReportFile } = await import("./validator.js");
+	const { report } = await readValidationReportFile(workspacePath, taskId);
+	if (report?.reviews && report.reviews.length > 0) {
+		for (const review of report.reviews) {
+			if (seenReviewedAt.has(review.reviewedAt)) continue;
+			entries.push({
+				reportResult: report.result,
+				validatedAt: report.validatedAt,
+				reviewed: true,
+				reviewOutcome: review.outcome,
+				...(review.note ? { reviewNote: review.note } : {}),
+				reviewedAt: review.reviewedAt,
+			});
+		}
+	}
+
+	entries.sort((a, b) => {
+		const aTs = a.reviewedAt ? Date.parse(a.reviewedAt) : Date.parse(a.validatedAt);
+		const bTs = b.reviewedAt ? Date.parse(b.reviewedAt) : Date.parse(b.validatedAt);
+		return bTs - aTs;
+	});
 	return entries;
 }
 

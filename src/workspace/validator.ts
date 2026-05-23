@@ -52,6 +52,17 @@ export const validationWorkSummarySchema = z.object({
 });
 export type ValidationWorkSummary = z.infer<typeof validationWorkSummarySchema>;
 
+/**
+ * A single PM review captured under the report's `## Reviews` section.
+ * Persisted to disk so review history survives clones / state-file deletion.
+ */
+export const validationReportReviewSchema = z.object({
+	outcome: z.enum(["accepted", "rejected", "escalated"]),
+	reviewedAt: z.string(),
+	note: z.string().optional(),
+});
+export type ValidationReportReview = z.infer<typeof validationReportReviewSchema>;
+
 export const validationReportSchema = z.object({
 	taskId: z.string(),
 	specSlug: z.string(),
@@ -61,6 +72,7 @@ export const validationReportSchema = z.object({
 	checks: z.array(validationCheckResultSchema),
 	summary: z.string(),
 	workSummary: validationWorkSummarySchema.optional(),
+	reviews: z.array(validationReportReviewSchema).optional(),
 });
 export type ValidationReport = z.infer<typeof validationReportSchema>;
 
@@ -707,6 +719,21 @@ function parseValidationReportMd(content: string): ValidationReport | null {
 	let workNotes = "";
 	let workDurationMs: number | undefined;
 	let sawWorkSection = false;
+	const reviews: ValidationReportReview[] = [];
+	let pendingReview: ValidationReportReview | null = null;
+	let pendingReviewNoteLines: string[] = [];
+
+	const flushPendingReview = () => {
+		if (!pendingReview) return;
+		const note = pendingReviewNoteLines.join("\n").trim();
+		reviews.push({
+			outcome: pendingReview.outcome,
+			reviewedAt: pendingReview.reviewedAt,
+			...(note ? { note } : {}),
+		});
+		pendingReview = null;
+		pendingReviewNoteLines = [];
+	};
 
 	let currentSection = "none";
 	let currentCheckName: ValidationCheckName | null = null;
@@ -765,6 +792,7 @@ function parseValidationReportMd(content: string): ValidationReport | null {
 
 		// Section headings
 		if (trimmed.startsWith("## ")) {
+			flushPendingReview();
 			const heading = trimmed.slice(3).trim();
 			if (heading === "Summary") {
 				currentSection = "summary";
@@ -778,6 +806,11 @@ function parseValidationReportMd(content: string): ValidationReport | null {
 				workSubSection = "steps";
 				continue;
 			}
+			if (heading === "Reviews") {
+				currentSection = "reviews";
+				currentCheckName = null;
+				continue;
+			}
 			const checkName = parseCheckHeading(heading);
 			if (checkName) {
 				currentSection = "check";
@@ -789,7 +822,28 @@ function parseValidationReportMd(content: string): ValidationReport | null {
 			continue;
 		}
 
+		// Sub-headings (### …) inside Reviews start new review entries.
+		if (currentSection === "reviews" && trimmed.startsWith("### ")) {
+			flushPendingReview();
+			const heading = trimmed.slice(4).trim();
+			const reviewMatch = heading.match(/^(Accepted|Rejected|Escalated)\s*—\s*(.+)$/i);
+			if (reviewMatch?.[1] && reviewMatch[2]) {
+				const outcomeWord = reviewMatch[1].toLowerCase();
+				const outcome: ValidationReportReview["outcome"] =
+					outcomeWord === "accepted" ? "accepted" : outcomeWord === "rejected" ? "rejected" : "escalated";
+				pendingReview = { outcome, reviewedAt: reviewMatch[2].trim() };
+				pendingReviewNoteLines = [];
+			}
+			continue;
+		}
+
 		// Content routing
+		if (currentSection === "reviews" && pendingReview) {
+			// Preserve original (non-trimmed) line so multi-paragraph notes
+			// retain their formatting; flushPendingReview trims surrounding ws.
+			pendingReviewNoteLines.push(line);
+			continue;
+		}
 		if (currentSection === "summary" && trimmed) {
 			summary += (summary ? " " : "") + trimmed;
 		} else if (currentSection === "work") {
@@ -839,6 +893,7 @@ function parseValidationReportMd(content: string): ValidationReport | null {
 		}
 	}
 
+	flushPendingReview();
 	if (!taskId) return null;
 
 	const workSummary: ValidationWorkSummary | undefined = sawWorkSection
@@ -859,6 +914,7 @@ function parseValidationReportMd(content: string): ValidationReport | null {
 		checks,
 		summary,
 		...(workSummary ? { workSummary } : {}),
+		...(reviews.length > 0 ? { reviews } : {}),
 	};
 }
 

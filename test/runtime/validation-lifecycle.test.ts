@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+	getLatestValidationsPerTask,
 	getTaskValidationHistory,
 	recordValidationResult,
 	reviewValidation,
@@ -134,6 +135,58 @@ describe("getTaskValidationHistory", () => {
 
 			const entries = await getTaskValidationHistory(workspacePath, baseReport.taskId);
 			expect(entries).toHaveLength(1);
+		});
+	});
+});
+
+describe("getLatestValidationsPerTask", () => {
+	it("returns an empty array when no validations recorded", async () => {
+		await withTempWorkspace(async (workspacePath) => {
+			const entries = await getLatestValidationsPerTask(workspacePath);
+			expect(entries).toEqual([]);
+		});
+	});
+
+	it("returns one entry per task across multiple roadmap items", async () => {
+		await withTempWorkspace(async (workspacePath) => {
+			seedReport(workspacePath, baseReport);
+			seedReport(workspacePath, { ...baseReport, taskId: "t_signup" });
+			await recordValidationResult(
+				workspacePath,
+				"roadmap_auth01",
+				baseReport.taskId,
+				"needs_review",
+				baseReport.validatedAt,
+			);
+			await recordValidationResult(workspacePath, "roadmap_auth01", "t_signup", "fail", "2026-05-22T12:30:00.000Z");
+
+			const entries = await getLatestValidationsPerTask(workspacePath);
+			expect(entries).toHaveLength(2);
+			const byTask = Object.fromEntries(entries.map((e) => [e.taskId, e]));
+			expect(byTask[baseReport.taskId]?.reportResult).toBe("needs_review");
+			expect(byTask.t_signup?.reportResult).toBe("fail");
+		});
+	});
+
+	it("includes reviewed entries with their outcome", async () => {
+		await withTempWorkspace(async (workspacePath) => {
+			seedReport(workspacePath, baseReport);
+			await recordValidationResult(
+				workspacePath,
+				"roadmap_auth01",
+				baseReport.taskId,
+				baseReport.result,
+				baseReport.validatedAt,
+			);
+			await reviewValidation(workspacePath, "roadmap_auth01", baseReport.taskId, "accepted");
+
+			const entries = await getLatestValidationsPerTask(workspacePath);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({
+				taskId: baseReport.taskId,
+				reviewed: true,
+				reviewOutcome: "accepted",
+			});
 		});
 	});
 });

@@ -4,6 +4,7 @@ import type { Command } from "commander";
 import type {
 	RuntimeAgentId,
 	RuntimeBoardCard,
+	RuntimeBoardCardRole,
 	RuntimeBoardColumnId,
 	RuntimeBoardDependency,
 	RuntimeClineReasoningEffort,
@@ -456,10 +457,13 @@ async function stopTaskRuntimeSession(
 async function deleteTaskWorkspace(
 	runtimeClient: ReturnType<typeof createRuntimeTrpcClient>,
 	taskId: string,
+	cardInfo?: { baseRef?: string; role?: RuntimeBoardCardRole },
 ): Promise<{ removed: boolean; error?: string }> {
 	try {
 		const deleted = await runtimeClient.workspace.deleteWorktree.mutate({
 			taskId,
+			...(cardInfo?.baseRef ? { baseRef: cardInfo.baseRef } : {}),
+			...(cardInfo?.role ? { role: cardInfo.role } : {}),
 		});
 		return {
 			removed: deleted.removed,
@@ -599,6 +603,7 @@ async function createSubtask(input: {
 		itemId,
 		agentCreatedTaskIds: [...(existingItemState?.agentCreatedTaskIds ?? []), created.task.id],
 		agentComments: existingItemState?.agentComments ?? [],
+		pendingValidations: existingItemState?.pendingValidations ?? [],
 		lastUpdatedAt: Date.now(),
 	};
 	await writeRoadmapStateFile(workspaceRepoPath, {
@@ -789,6 +794,8 @@ async function startTask(input: { cwd: string; taskId: string; projectPath?: str
 		const ensured = await runtimeClient.workspace.ensureWorktree.mutate({
 			taskId: task.id,
 			baseRef: task.baseRef,
+			role: task.role,
+			specSlug: task.specSlug,
 		});
 		if (!ensured.ok) {
 			throw new Error(ensured.error ?? "Could not ensure task worktree.");
@@ -865,6 +872,8 @@ interface TrashTaskMutationValue {
 	previousColumnId: ListTaskColumn;
 	readyTaskIds: string[];
 	alreadyInTrash: boolean;
+	/** Card metadata needed for sub-task branch merging on cleanup. */
+	cardInfo?: { baseRef: string; role?: RuntimeBoardCardRole };
 }
 
 function columnCanHaveLiveTaskSession(columnId: ListTaskColumn): boolean {
@@ -912,6 +921,10 @@ async function trashTaskById(input: {
 				previousColumnId: latestRecord.columnId,
 				readyTaskIds: trashed.readyTaskIds,
 				alreadyInTrash: false,
+				cardInfo: {
+					baseRef: latestRecord.task.baseRef,
+					role: latestRecord.task.role,
+				},
 			},
 		};
 	});
@@ -946,7 +959,7 @@ async function trashTaskById(input: {
 		autoStartedTasks.push(started);
 	}
 
-	const deletedWorkspace = await deleteTaskWorkspace(input.runtimeClient, input.taskId);
+	const deletedWorkspace = await deleteTaskWorkspace(input.runtimeClient, input.taskId, mutation.value.cardInfo);
 
 	return {
 		task: mutation.value.task,
@@ -1168,6 +1181,52 @@ function parseOptionalBooleanOption(value: unknown, flagName: string): boolean |
 		return false;
 	}
 	throw new Error(`Invalid boolean value for ${flagName}: "${value}". Use true or false.`);
+}
+
+async function validateTaskCommand(input: { cwd: string; taskId: string; projectPath?: string }): Promise<JsonRecord> {
+	const workspace = await resolveRuntimeWorkspace(input.projectPath, input.cwd, {
+		autoCreateIfMissing: false,
+	});
+	const runtimeClient = createRuntimeTrpcClient(workspace.workspaceId);
+	const state = await runtimeClient.workspace.getState.query();
+
+	const found = findTaskRecord(state, input.taskId);
+	if (!found) {
+		return {
+			ok: false,
+			error: `Task "${input.taskId}" not found in workspace at ${workspace.repoPath}.`,
+		};
+	}
+	const card = found.task;
+	if (!card.roadmapItemId || !card.specSlug) {
+		return {
+			ok: false,
+			error: `Task "${input.taskId}" is not linked to a roadmap item / spec; cannot validate.`,
+		};
+	}
+
+	const report = await runtimeClient.runtime.validateDeliverable.mutate({
+		taskId: input.taskId,
+		specSlug: card.specSlug,
+		roadmapItemId: card.roadmapItemId,
+		ownedPaths: card.ownedPaths ?? [],
+	});
+
+	return {
+		ok: true,
+		workspacePath: workspace.repoPath,
+		taskId: input.taskId,
+		report: {
+			result: report.result,
+			validatedAt: report.validatedAt,
+			summary: report.summary,
+			checks: report.checks.map((check) => ({
+				check: check.check,
+				status: check.status,
+				details: check.details,
+			})),
+		},
+	};
 }
 
 async function runTaskCommand(handler: () => Promise<JsonRecord>): Promise<void> {
@@ -1450,6 +1509,22 @@ export function registerTaskCommand(program: Command): void {
 						parentTaskId: options.parentTaskId,
 						prompt: options.prompt,
 						title: options.title,
+						projectPath: options.projectPath,
+					}),
+			);
+		});
+
+	task
+		.command("validate")
+		.description("Run the deliverable validator for a roadmap-linked task and print the report as JSON.")
+		.requiredOption("--task-id <id>", "Task ID to validate.")
+		.option("--project-path <path>", "Workspace path. Defaults to current directory workspace.")
+		.action(async (options: { taskId: string; projectPath?: string }) => {
+			await runTaskCommand(
+				async () =>
+					await validateTaskCommand({
+						cwd: process.cwd(),
+						taskId: options.taskId,
 						projectPath: options.projectPath,
 					}),
 			);

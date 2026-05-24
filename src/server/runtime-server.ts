@@ -24,6 +24,7 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { type AuthRouter, dispatchAuthOnNode } from "../identity/auth-routes.js";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -74,6 +75,12 @@ export interface CreateRuntimeServerDependencies {
 	pickDirectoryPathFromSystemDialog: () => string | null;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
+	/**
+	 * Optional auth router. When set, /api/auth/* requests are dispatched to
+	 * it before passcode / tRPC handling. Created by the CLI when the
+	 * operator opts into magic-link auth (see src/identity/).
+	 */
+	authRouter?: AuthRouter;
 }
 
 export interface RuntimeServer {
@@ -284,6 +291,14 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 			const requestUrl = new URL(req.url ?? "/", "http://localhost");
 			const pathname = normalizeRequestPath(requestUrl.pathname);
+
+			// ── Magic-link auth routes (only when an authRouter is wired) ─────
+			// Runs BEFORE the passcode gate so /api/auth/* is reachable on a
+			// hosted instance that uses the IdentityProvider flow as its primary
+			// gate instead of passcode.
+			if (deps.authRouter && (await dispatchAuthOnNode(deps.authRouter, req, res))) {
+				return;
+			}
 
 			// ── Passcode gate (remote mode only) ──────────────────────────────
 			const passcodeActive = isRemoteMode && isPasscodeEnabled();

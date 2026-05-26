@@ -13,6 +13,7 @@ import type {
 	RuntimeStateStreamTaskReadyForReviewMessage,
 	RuntimeTaskChatMessage,
 	RuntimeTaskSessionSummary,
+	RuntimeTokenUsage,
 	RuntimeWorkspaceMetadata,
 	RuntimeWorkspaceStateResponse,
 } from "@/runtime/types";
@@ -51,6 +52,7 @@ export interface UseRuntimeStateStreamResult {
 	projects: RuntimeProjectSummary[];
 	workspaceState: RuntimeWorkspaceStateResponse | null;
 	workspaceMetadata: RuntimeWorkspaceMetadata | null;
+	tokenUsage: RuntimeTokenUsage | null;
 	latestTaskChatMessage: RuntimeStateStreamTaskChatMessage | null;
 	taskChatMessagesByTaskId: Record<string, RuntimeTaskChatMessage[]>;
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
@@ -66,6 +68,7 @@ interface RuntimeStateStreamStore {
 	projects: RuntimeProjectSummary[];
 	workspaceState: RuntimeWorkspaceStateResponse | null;
 	workspaceMetadata: RuntimeWorkspaceMetadata | null;
+	tokenUsage: RuntimeTokenUsage | null;
 	latestTaskChatMessage: RuntimeStateStreamTaskChatMessage | null;
 	taskChatMessagesByTaskId: Record<string, RuntimeTaskChatMessage[]>;
 	latestTaskReadyForReview: RuntimeStateStreamTaskReadyForReviewMessage | null;
@@ -91,6 +94,7 @@ type RuntimeStateStreamAction =
 	| { type: "task_ready_for_review"; payload: RuntimeStateStreamTaskReadyForReviewMessage }
 	| { type: "mcp_auth_updated"; payload: RuntimeStateStreamMcpAuthUpdatedMessage }
 	| { type: "cline_session_context_updated"; payload: RuntimeStateStreamClineSessionContextUpdatedMessage }
+	| { type: "token_usage_updated"; tokenUsage: RuntimeTokenUsage }
 	| { type: "workspace_state_updated"; workspaceState: RuntimeWorkspaceStateResponse }
 	| { type: "task_sessions_updated"; summaries: RuntimeTaskSessionSummary[] }
 	| { type: "stream_error"; message: string }
@@ -102,6 +106,7 @@ function createInitialRuntimeStateStreamStore(requestedWorkspaceId: string | nul
 		projects: [],
 		workspaceState: null,
 		workspaceMetadata: null,
+		tokenUsage: null,
 		latestTaskChatMessage: null,
 		taskChatMessagesByTaskId: {},
 		latestTaskReadyForReview: null,
@@ -186,6 +191,7 @@ function runtimeStateStreamReducer(
 			projects: action.payload.projects,
 			workspaceState: nextWorkspaceState,
 			workspaceMetadata: action.payload.workspaceMetadata,
+			tokenUsage: action.payload.tokenUsage ?? null,
 			latestTaskChatMessage: null,
 			taskChatMessagesByTaskId: {},
 			latestTaskReadyForReview: state.latestTaskReadyForReview,
@@ -253,6 +259,12 @@ function runtimeStateStreamReducer(
 		return {
 			...state,
 			clineSessionContextVersion: action.payload.version,
+		};
+	}
+	if (action.type === "token_usage_updated") {
+		return {
+			...state,
+			tokenUsage: action.tokenUsage,
 		};
 	}
 	if (action.type === "workspace_state_updated") {
@@ -459,6 +471,16 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 						});
 						return;
 					}
+					if (payload.type === "token_usage_updated") {
+						if (payload.workspaceId !== activeWorkspaceId) {
+							return;
+						}
+						dispatch({
+							type: "token_usage_updated",
+							tokenUsage: payload.tokenUsage,
+						});
+						return;
+					}
 					if (payload.type === "error") {
 						dispatch({
 							type: "stream_error",
@@ -506,6 +528,7 @@ export function useRuntimeStateStream(requestedWorkspaceId: string | null): UseR
 		projects: state.projects,
 		workspaceState: state.workspaceState,
 		workspaceMetadata: state.workspaceMetadata,
+		tokenUsage: state.tokenUsage,
 		latestTaskChatMessage: state.latestTaskChatMessage,
 		taskChatMessagesByTaskId: state.taskChatMessagesByTaskId,
 		latestTaskReadyForReview: state.latestTaskReadyForReview,

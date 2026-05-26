@@ -25,7 +25,89 @@ export async function writeRoadmapFromItems(workspacePath: string, items: Runtim
 	await writeFile(filePath, serializeRoadmap(items), "utf8");
 }
 
-export function serializeRoadmap(items: RuntimeRoadmapItem[]): string {
+// ---------------------------------------------------------------------------
+// V2 table-format serializer (default)
+// ---------------------------------------------------------------------------
+
+/**
+ * Serialize roadmap items into the V2 table-based ROADMAP.md format.
+ *
+ * Layout:
+ *   # Project Roadmap
+ *   ## Introduction
+ *   <intro paragraph>
+ *   ## Items
+ *   | ID | POC | Title | Description | Goal (Exit Criteria) | Spec | Status | Launch Date |
+ *   ...rows...
+ *   ## Comments
+ *   > [timestamp] text
+ */
+export function serializeRoadmapTable(items: RuntimeRoadmapItem[], intro?: string): string {
+	const lines: string[] = ["# Project Roadmap\n"];
+
+	// Introduction section
+	lines.push("## Introduction\n");
+	lines.push(intro ? `${intro}\n` : "Project roadmap.\n");
+
+	// Items table
+	lines.push("## Items\n");
+	lines.push("| ID | POC | Title | Description | Goal (Exit Criteria) | Spec | Status | Launch Date |");
+	lines.push("|----|-----|-------|-------------|---------------------|------|--------|-------------|");
+
+	for (const item of items) {
+		const id = escapeTableCell(item.id);
+		const poc = escapeTableCell(item.poc ?? item.owner ?? "");
+		const title = escapeTableCell(item.title);
+		const description = escapeTableCell(item.description);
+		const goal = escapeTableCell(item.goal ?? "");
+		const spec = item.specSlug ? `[spec](specs/${item.specSlug}/)` : "";
+		const status = formatStatus(item.status);
+		const launchDate = item.endDate && isValidIsoDate(item.endDate) ? item.endDate : "";
+
+		lines.push(`| ${id} | ${poc} | ${title} | ${description} | ${goal} | ${spec} | ${status} | ${launchDate} |`);
+	}
+
+	lines.push("");
+
+	// Aggregate all comments across items
+	const allComments: Array<{ text: string; createdAt: number }> = [];
+	for (const item of items) {
+		for (const c of item.comments) {
+			allComments.push(c);
+		}
+	}
+	if (allComments.length > 0) {
+		// Sort comments chronologically
+		allComments.sort((a, b) => a.createdAt - b.createdAt);
+		lines.push("## Comments\n");
+		for (const c of allComments) {
+			const date = new Date(c.createdAt).toISOString();
+			lines.push(`> [${date}] ${c.text}`);
+		}
+		lines.push("");
+	}
+
+	return lines.join("\n");
+}
+
+/** Default serializer — uses the V2 table format. */
+export function serializeRoadmap(items: RuntimeRoadmapItem[], intro?: string): string {
+	return serializeRoadmapTable(items, intro);
+}
+
+/**
+ * Escape a value for inclusion inside a markdown table cell.
+ * Pipes and newlines would break the table layout.
+ */
+function escapeTableCell(value: string): string {
+	return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+// ---------------------------------------------------------------------------
+// V1 per-item serializer (kept for back-compat / .v1.bak files)
+// ---------------------------------------------------------------------------
+
+export function serializeRoadmapV1(items: RuntimeRoadmapItem[]): string {
 	if (items.length === 0) {
 		return "# Roadmap\n\nNo items yet.\n";
 	}
@@ -43,13 +125,11 @@ export function serializeRoadmap(items: RuntimeRoadmapItem[]): string {
 		if (item.description) {
 			lines.push(`${item.description}\n`);
 		}
-		if (item.requirements) {
-			lines.push("### Requirements\n");
-			lines.push(`${item.requirements}\n`);
+		if (item.goal) {
+			lines.push(`**Goal:** ${item.goal}\n`);
 		}
-		if (item.design) {
-			lines.push("### Design\n");
-			lines.push(`${item.design}\n`);
+		if (item.specSlug) {
+			lines.push(`**Spec:** [specs/${item.specSlug}/](specs/${item.specSlug}/)\n`);
 		}
 		const taskRefs =
 			item.tasks.length > 0
@@ -131,7 +211,214 @@ function warnMalformed(label: string, rawValue: string, itemTitle: string): void
 	process.stderr.write(`[roadmap-file] Ignoring malformed ${label} "${rawValue}" for roadmap item "${itemTitle}"\n`);
 }
 
+// ---------------------------------------------------------------------------
+// V2 table-format parser
+// ---------------------------------------------------------------------------
+
+/** Column names we recognise in the Items table (lowercased for matching). */
+const KNOWN_COLUMNS = new Map<string, string>([
+	["id", "id"],
+	["poc", "owner"],
+	["title", "title"],
+	["description", "description"],
+	["goal (exit criteria)", "goal"],
+	["goal", "goal"],
+	["spec", "spec"],
+	["status", "status"],
+	["launch date", "launchDate"],
+]);
+
+/**
+ * Detect whether `content` uses the V2 table format.
+ * Looks for a `## Items` heading followed (within a few lines) by a
+ * pipe-delimited table header row.
+ */
+function isTableFormat(content: string): boolean {
+	const itemsIdx = content.search(/^## Items\b/m);
+	if (itemsIdx === -1) return false;
+	// Check the next ~5 non-empty lines after ## Items for a table header
+	const afterItems = content.slice(itemsIdx);
+	const lines = afterItems.split("\n").slice(1, 8);
+	return lines.some((l) => /^\|.*\|$/.test(l.trim()));
+}
+
+/**
+ * Parse the V2 table-based ROADMAP.md into RuntimeRoadmapItem[].
+ *
+ * Handles:
+ * - `## Introduction` section (stored as context but not mapped to items)
+ * - `## Items` markdown table with known + unknown columns
+ * - `## Comments` global blockquote comments (attached to every item)
+ */
+export function parseRoadmapTable(content: string): RuntimeRoadmapItem[] {
+	// --- Split into top-level ## sections ---
+	const sectionMap = parseH2Sections(content);
+
+	// --- Parse introduction ---
+	const _intro = (sectionMap.get("introduction") ?? "").trim();
+
+	// --- Parse comments ---
+	const globalComments = parseGlobalComments(sectionMap.get("comments") ?? "");
+
+	// --- Parse the items table ---
+	const itemsRaw = sectionMap.get("items") ?? "";
+	const tableLines = itemsRaw
+		.split("\n")
+		.map((l) => l.trim())
+		.filter((l) => l.startsWith("|"));
+
+	if (tableLines.length < 2) return [];
+
+	// First line = header, second = separator (skip it), rest = data rows
+	const headerLine = tableLines[0] ?? "";
+	const columnNames = splitTableRow(headerLine);
+
+	// Map column positions to known field keys
+	const columnMapping: Array<string | null> = columnNames.map((name) => {
+		return KNOWN_COLUMNS.get(name.toLowerCase().trim()) ?? null;
+	});
+
+	const items: RuntimeRoadmapItem[] = [];
+
+	for (let i = 2; i < tableLines.length; i++) {
+		const row = tableLines[i] ?? "";
+		// Skip separator-like rows
+		if (/^\|[\s-|]+\|$/.test(row)) continue;
+
+		const cells = splitTableRow(row);
+		const cellMap = new Map<string, string>();
+		for (let col = 0; col < columnMapping.length; col++) {
+			const key = columnMapping[col];
+			if (key) {
+				cellMap.set(key, unescapeTableCell(cells[col] ?? "").trim());
+			}
+		}
+
+		const rawTitle = cellMap.get("title") ?? "";
+		if (!rawTitle) continue;
+
+		// ID: prefix bare numbers with roadmap_
+		let id = cellMap.get("id") ?? "";
+		if (!id) {
+			id = `roadmap_${crypto.randomUUID()}`;
+		} else if (/^\d+$/.test(id)) {
+			id = `roadmap_${id}`;
+		}
+
+		const owner = cellMap.get("owner") || undefined;
+		const description = cellMap.get("description") ?? "";
+		const goal = cellMap.get("goal") ?? "";
+		const status = parseStatus(cellMap.get("status") ?? "");
+
+		// Launch Date → endDate
+		const rawLaunchDate = cellMap.get("launchDate") ?? "";
+		const endDate = isValidIsoDate(rawLaunchDate) ? rawLaunchDate : undefined;
+
+		// Spec → extract slug from [spec](specs/<slug>/) or [spec](specs/<slug>)
+		const specSlug = extractSpecSlug(cellMap.get("spec") ?? "");
+
+		const ts = Date.now();
+		items.push({
+			id,
+			title: rawTitle,
+			description,
+			status,
+			...(owner ? { owner, poc: owner } : {}),
+			...(goal ? { goal } : {}),
+			...(specSlug ? { specSlug } : {}),
+			...(endDate ? { endDate } : {}),
+			openQuestions: [],
+			tasks: [],
+			linkedTaskIds: [],
+			comments: [...globalComments],
+			createdAt: ts,
+			updatedAt: ts,
+		});
+	}
+
+	return items;
+}
+
+/**
+ * Split content into a Map of lowercase heading → body text for each `## Heading` section.
+ */
+function parseH2Sections(content: string): Map<string, string> {
+	const map = new Map<string, string>();
+	const parts = content.split(/^## /m);
+	// parts[0] is content before the first ##, skip it
+	for (let i = 1; i < parts.length; i++) {
+		const part = parts[i] ?? "";
+		const newlineIdx = part.indexOf("\n");
+		if (newlineIdx === -1) {
+			map.set(part.trim().toLowerCase(), "");
+		} else {
+			const heading = part.slice(0, newlineIdx).trim().toLowerCase();
+			const body = part.slice(newlineIdx + 1);
+			map.set(heading, body);
+		}
+	}
+	return map;
+}
+
+/**
+ * Split a markdown table row (e.g. `| a | b | c |`) into cell values.
+ * Handles escaped pipes `\|` inside cells.
+ */
+function splitTableRow(row: string): string[] {
+	// Remove leading/trailing pipe and whitespace
+	let inner = row.trim();
+	if (inner.startsWith("|")) inner = inner.slice(1);
+	if (inner.endsWith("|")) inner = inner.slice(0, -1);
+
+	// Split on unescaped pipes: we replace \| temporarily
+	const placeholder = "\x00PIPE\x00";
+	const escaped = inner.replace(/\\\|/g, placeholder);
+	return escaped.split("|").map((cell) => cell.replace(new RegExp(placeholder, "g"), "|").trim());
+}
+
+/** Reverse `escapeTableCell` — restore pipes and (limited) newlines. */
+function unescapeTableCell(value: string): string {
+	return value.replace(/\\\|/g, "|");
+}
+
+/** Extract a spec slug from `[spec](specs/<slug>/)` or `[text](specs/<slug>)`. */
+function extractSpecSlug(value: string): string | undefined {
+	const match = value.match(/\[.*?]\(specs\/([^/)]+)\/?.*?\)/);
+	return match?.[1] ?? undefined;
+}
+
+/** Parse global `## Comments` blockquotes into comment objects. */
+function parseGlobalComments(body: string): Array<{ id: string; text: string; createdAt: number }> {
+	const comments: Array<{ id: string; text: string; createdAt: number }> = [];
+	for (const line of body.split("\n")) {
+		const match = line.trim().match(/^> \[(.+?)] (.+)$/);
+		if (match?.[2]) {
+			comments.push({
+				id: crypto.randomUUID(),
+				text: match[2],
+				createdAt: new Date(match[1] ?? "").getTime() || Date.now(),
+			});
+		}
+	}
+	return comments;
+}
+
+// ---------------------------------------------------------------------------
+// V1 per-item parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a ROADMAP.md file. Automatically detects whether the content uses
+ * the V2 table format or the V1 per-item format and dispatches accordingly.
+ */
 export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
+	if (isTableFormat(content)) {
+		return parseRoadmapTable(content);
+	}
+	return parseRoadmapMarkdownV1(content);
+}
+
+function parseRoadmapMarkdownV1(content: string): RuntimeRoadmapItem[] {
 	const items: RuntimeRoadmapItem[] = [];
 	const sections = content.split(/^## /m).slice(1);
 
@@ -323,20 +610,29 @@ export function parseRoadmapMarkdown(content: string): RuntimeRoadmapItem[] {
 			}
 		}
 
-		// Trim trailing empty lines from section content
-		const requirements = trimSectionContent(sectionLines.requirements);
-		const design = trimSectionContent(sectionLines.design);
+		// Trim trailing empty lines from section content.
+		// V1 format stored requirements/design inline; fold into description
+		// for backward compatibility since those fields are removed from the schema.
+		const requirementsContent = trimSectionContent(sectionLines.requirements);
+		const designContent = trimSectionContent(sectionLines.design);
+
+		const descParts = [descLines.join("\n").trim()];
+		if (requirementsContent) {
+			descParts.push(`### Requirements\n\n${requirementsContent}`);
+		}
+		if (designContent) {
+			descParts.push(`### Design\n\n${designContent}`);
+		}
+		const finalDescription = descParts.filter(Boolean).join("\n\n");
 
 		const ts = Date.now();
 		items.push({
 			id: explicitId ?? `roadmap_${crypto.randomUUID()}`,
 			title,
-			description: descLines.join("\n").trim(),
+			description: finalDescription,
 			status,
 			...(version != null ? { version } : {}),
 			...(owner ? { owner } : {}),
-			...(requirements ? { requirements } : {}),
-			...(design ? { design } : {}),
 			...(startDate ? { startDate } : {}),
 			...(endDate ? { endDate } : {}),
 			...(milestone != null ? { milestone } : {}),
@@ -361,14 +657,34 @@ function trimSectionContent(lines: string[]): string | undefined {
 	return lines.slice(start, end).join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// V1 → V2 migration
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a V1 per-item ROADMAP.md to the V2 table format.
+ * Parses with the V1 parser and re-serializes with the V2 table serializer.
+ */
+export function migrateRoadmapV1ToV2(content: string): string {
+	const items = parseRoadmapMarkdownV1(content);
+	return serializeRoadmapTable(items);
+}
+
+// ---------------------------------------------------------------------------
+// Import parser (best-effort, arbitrary text)
+// ---------------------------------------------------------------------------
+
 /**
  * Best-effort parse of arbitrary text (not our format) into roadmap items.
  * Handles numbered lists, markdown headings, and bullet points.
  */
 export function parseImportedText(content: string): RuntimeRoadmapItem[] {
-	// Try our own format first
+	// Try our own format first (V2 table or V1 per-item)
+	if (isTableFormat(content)) {
+		return parseRoadmapTable(content);
+	}
 	if (content.includes("## ") && content.includes("**Status:**")) {
-		return parseRoadmapMarkdown(content);
+		return parseRoadmapMarkdownV1(content);
 	}
 
 	const items: RuntimeRoadmapItem[] = [];

@@ -28,3 +28,6 @@ packages/desktop/cli
 
 # Gitignored kanban live dashboard state (ROADMAP.md is the committed spec)
 .kanban/roadmap-state.json
+
+# Shared memory transient event stream (interfaces.md and decisions.md are committed)
+.kanban/shared-memory/changelog.jsonl

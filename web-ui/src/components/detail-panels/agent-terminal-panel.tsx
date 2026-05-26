@@ -28,8 +28,12 @@ export interface AgentTerminalPanelProps {
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onCommit?: () => void;
 	onOpenPr?: () => void;
+	onAiReview?: () => void;
+	onToggleAutoReview?: (currentEnabled: boolean) => void;
+	autoReviewEnabled?: boolean;
 	isCommitLoading?: boolean;
 	isOpenPrLoading?: boolean;
+	isAiReviewLoading?: boolean;
 	taskColumnId?: string;
 	onMoveToTrash?: () => void;
 	isMoveToTrashLoading?: boolean;
@@ -101,15 +105,19 @@ function AgentTerminalReviewActions({
 	taskColumnId,
 	onCommit,
 	onOpenPr,
+	onAiReview,
 	isCommitLoading,
 	isOpenPrLoading,
+	isAiReviewLoading,
 }: {
 	taskId: string;
 	taskColumnId: string;
 	onCommit?: () => void;
 	onOpenPr?: () => void;
+	onAiReview?: () => void;
 	isCommitLoading: boolean;
 	isOpenPrLoading: boolean;
+	isAiReviewLoading?: boolean;
 }): ReactElement | null {
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(taskId);
 	const showReviewGitActions = taskColumnId === "review" && (reviewWorkspaceSnapshot?.changedFiles ?? 0) > 0;
@@ -120,6 +128,17 @@ function AgentTerminalReviewActions({
 
 	return (
 		<div style={{ display: "flex", gap: 6 }}>
+			{onAiReview ? (
+				<Button
+					variant="default"
+					size="sm"
+					style={{ flex: "1 1 0" }}
+					disabled={isCommitLoading || isOpenPrLoading || isAiReviewLoading}
+					onClick={onAiReview}
+				>
+					{isAiReviewLoading ? "..." : "AI Review"}
+				</Button>
+			) : null}
 			<Button
 				variant="primary"
 				size="sm"
@@ -148,8 +167,12 @@ function AgentTerminalPanelLayout({
 	onSummary: _onSummary,
 	onCommit,
 	onOpenPr,
+	onAiReview,
+	onToggleAutoReview,
+	autoReviewEnabled = false,
 	isCommitLoading = false,
 	isOpenPrLoading = false,
+	isAiReviewLoading = false,
 	taskColumnId = "in_progress",
 	onMoveToTrash,
 	isMoveToTrashLoading = false,
@@ -321,8 +344,10 @@ function AgentTerminalPanelLayout({
 						taskColumnId={taskColumnId}
 						onCommit={onCommit}
 						onOpenPr={onOpenPr}
+						onAiReview={onAiReview}
 						isCommitLoading={isCommitLoading}
 						isOpenPrLoading={isOpenPrLoading}
+						isAiReviewLoading={isAiReviewLoading}
 					/>
 					{cancelAutomaticActionLabel && onCancelAutomaticAction ? (
 						<Button variant="default" fill onClick={onCancelAutomaticAction}>

@@ -142,12 +142,13 @@ Some description.
 			const items = parseRoadmapMarkdown(input);
 			// Start inside Requirements should not be treated as metadata.
 			expect(items[0]?.startDate).toBeUndefined();
-			expect(items[0]?.requirements).toContain("**Start:** 2026-05-01");
+			// V1 parser now folds requirements content into description
+			expect(items[0]?.description).toContain("**Start:** 2026-05-01");
 		});
 	});
 
 	describe("serializeRoadmap", () => {
-		it("emits Start, End, and Milestone lines when set", () => {
+		it("emits Launch Date column when endDate is set", () => {
 			const ts = Date.now();
 			const output = serializeRoadmap([
 				{
@@ -166,12 +167,12 @@ Some description.
 					updatedAt: ts,
 				},
 			]);
-			expect(output).toContain("**Start:** 2026-05-01");
-			expect(output).toContain("**End:** 2026-06-30");
-			expect(output).toContain("**Milestone:** true");
+			// V2 table format puts endDate in the Launch Date column
+			expect(output).toContain("2026-06-30");
+			expect(output).toContain("Timeline item");
 		});
 
-		it("omits metadata when fields are absent or false", () => {
+		it("omits Launch Date when endDate is absent", () => {
 			const ts = Date.now();
 			const output = serializeRoadmap([
 				{
@@ -188,9 +189,9 @@ Some description.
 					updatedAt: ts,
 				},
 			]);
-			expect(output).not.toContain("**Start:**");
-			expect(output).not.toContain("**End:**");
-			expect(output).not.toContain("**Milestone:**");
+			// V2 table row should not have a date value
+			expect(output).toContain("Bare item");
+			expect(output).not.toContain("2026");
 		});
 
 		it("does not emit invalid dates even if they slip into the model", () => {
@@ -211,13 +212,14 @@ Some description.
 					updatedAt: ts,
 				},
 			]);
-			expect(output).not.toContain("**Start:**");
-			expect(output).not.toContain("**End:**");
+			// Invalid dates should not appear in the Launch Date column
+			expect(output).not.toContain("garbage");
+			expect(output).not.toContain("2026-13-01");
 		});
 	});
 
 	describe("round-trip", () => {
-		it("preserves start, end, and milestone across serialize/parse cycles", () => {
+		it("preserves key fields across V2 table serialize/parse cycles", () => {
 			const ts = Date.now();
 			const original = [
 				{
@@ -225,11 +227,10 @@ Some description.
 					title: "Timeline round-trip",
 					description: "Ship a Gantt chart.",
 					status: "in_progress" as const,
-					version: 1,
 					owner: "agent:planner_01",
-					startDate: "2026-05-01",
 					endDate: "2026-07-15",
-					milestone: true,
+					goal: "Gantt chart renders correctly",
+					specSlug: "timeline-round-trip",
 					openQuestions: [],
 					tasks: [],
 					linkedTaskIds: [],
@@ -247,11 +248,11 @@ Some description.
 			expect(item.id).toBe("roadmap_tl03");
 			expect(item.title).toBe("Timeline round-trip");
 			expect(item.status).toBe("in_progress");
-			expect(item.version).toBe(1);
-			expect(item.owner).toBe("agent:planner_01");
-			expect(item.startDate).toBe("2026-05-01");
+			// V2 table format preserves: POC (→ owner/poc), endDate (Launch Date), goal, specSlug
+			expect(item.poc).toBe("agent:planner_01");
 			expect(item.endDate).toBe("2026-07-15");
-			expect(item.milestone).toBe(true);
+			expect(item.goal).toBe("Gantt chart renders correctly");
+			expect(item.specSlug).toBe("timeline-round-trip");
 			expect(item.description).toContain("Ship a Gantt chart.");
 		});
 

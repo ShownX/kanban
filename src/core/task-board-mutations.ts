@@ -1,6 +1,7 @@
 import type {
 	RuntimeAgentId,
 	RuntimeBoardCard,
+	RuntimeBoardCardRole,
 	RuntimeBoardColumnId,
 	RuntimeBoardData,
 	RuntimeBoardDependency,
@@ -905,4 +906,209 @@ function findTaskInBoard(
 		}
 	}
 	return null;
+}
+
+/**
+ * Patch additional fields onto a card that was just inserted into a board by
+ * `addTaskToColumn`. Returns the updated board and the patched card.
+ *
+ * This avoids widening `RuntimeCreateTaskInput` with project-agent-only
+ * concerns while keeping `addTaskToColumn` as the single insertion point.
+ */
+function patchCardInBoard(
+	board: RuntimeBoardData,
+	cardId: string,
+	patch: Partial<RuntimeBoardCard>,
+): { board: RuntimeBoardData; card: RuntimeBoardCard } | null {
+	for (const [columnIndex, column] of board.columns.entries()) {
+		const cardIndex = column.cards.findIndex((c) => c.id === cardId);
+		if (cardIndex === -1) {
+			continue;
+		}
+		const existing = column.cards[cardIndex];
+		if (!existing) {
+			continue;
+		}
+		const patched: RuntimeBoardCard = { ...existing, ...patch };
+		const cards = column.cards.map((c, i) => (i === cardIndex ? patched : c));
+		const columns = board.columns.map((col, i) => (i === columnIndex ? { ...col, cards } : col));
+		return { board: { ...board, columns }, card: patched };
+	}
+	return null;
+}
+
+// ---------------------------------------------------------------------------
+// Project agent card lifecycle
+// ---------------------------------------------------------------------------
+
+export interface RuntimeProjectAgentCardDraft {
+	/** Kebab-case spec directory name. */
+	specSlug: string;
+	/** File paths this agent owns. */
+	ownedPaths: string[];
+	/** Parent roadmap item. */
+	roadmapItemId: string;
+	/** Optional override — defaults to roadmap item title via `resolveTaskTitle`. */
+	title?: string;
+	/** Instructions for the project agent. */
+	prompt: string;
+	/** Base branch (typically main). */
+	baseRef: string;
+	/** Which agent to use. */
+	agentId?: RuntimeAgentId;
+}
+
+export interface RuntimeCreateProjectAgentResult {
+	board: RuntimeBoardData;
+	projectCard: RuntimeBoardCard;
+}
+
+/**
+ * Create a project agent card and add it to the backlog column.
+ *
+ * Project agent cards carry `role: "project_agent"`, a `specSlug` linking them
+ * to the spec directory, and `ownedPaths` listing file paths the agent owns.
+ */
+export function createProjectAgentCard(
+	board: RuntimeBoardData,
+	draft: RuntimeProjectAgentCardDraft,
+	randomUuid: () => string,
+	now: number = Date.now(),
+): RuntimeCreateProjectAgentResult {
+	const result = addTaskToColumn(
+		board,
+		"backlog",
+		{
+			title: draft.title,
+			prompt: draft.prompt,
+			baseRef: draft.baseRef,
+			roadmapItemId: draft.roadmapItemId,
+			agentId: draft.agentId,
+		},
+		randomUuid,
+		now,
+	);
+
+	const patched = patchCardInBoard(result.board, result.task.id, {
+		role: "project_agent" as RuntimeBoardCardRole,
+		specSlug: draft.specSlug,
+		ownedPaths: [...draft.ownedPaths],
+	});
+
+	if (!patched) {
+		// Should never happen — the card was just inserted. Defensive fallback.
+		return { board: result.board, projectCard: result.task };
+	}
+
+	return { board: patched.board, projectCard: patched.card };
+}
+
+export interface RuntimeProjectSubtaskDraft {
+	title?: string;
+	prompt: string;
+	/** The project agent card that is creating this sub-task. */
+	parentProjectCardId: string;
+	/** If not provided, defaults to `project/<specSlug>` branch. */
+	baseRef?: string;
+}
+
+/**
+ * Create a sub-task card spawned by a project agent.
+ *
+ * The sub-task inherits `roadmapItemId` from the parent project card and
+ * defaults its `baseRef` to `project/<specSlug>` (branching off the project
+ * branch) when no explicit baseRef is given.
+ */
+export function createProjectSubtask(
+	board: RuntimeBoardData,
+	parentCard: RuntimeBoardCard,
+	draft: RuntimeProjectSubtaskDraft,
+	randomUuid: () => string,
+	now: number = Date.now(),
+): { board: RuntimeBoardData; subtask: RuntimeBoardCard } {
+	const baseRef = draft.baseRef ?? `project/${parentCard.specSlug ?? "unknown"}`;
+
+	const result = addTaskToColumn(
+		board,
+		"backlog",
+		{
+			title: draft.title,
+			prompt: draft.prompt,
+			baseRef,
+			roadmapItemId: parentCard.roadmapItemId,
+			createdBy: `agent:${parentCard.id}`,
+		},
+		randomUuid,
+		now,
+	);
+
+	const patched = patchCardInBoard(result.board, result.task.id, {
+		role: "task" as RuntimeBoardCardRole,
+	});
+
+	if (!patched) {
+		return { board: result.board, subtask: result.task };
+	}
+
+	return { board: patched.board, subtask: patched.card };
+}
+
+/**
+ * Return all sub-task cards that belong to the same roadmap item as the given
+ * project card, excluding project agent cards themselves.
+ */
+export function getProjectSubtasks(board: RuntimeBoardData, projectCardId: string): RuntimeBoardCard[] {
+	// First find the project card to get its roadmapItemId.
+	const projectRecord = findTaskInBoard(board, projectCardId);
+	if (!projectRecord) {
+		return [];
+	}
+	const { roadmapItemId } = projectRecord.task;
+	if (!roadmapItemId) {
+		return [];
+	}
+
+	const subtasks: RuntimeBoardCard[] = [];
+	for (const column of board.columns) {
+		for (const card of column.cards) {
+			if (card.id === projectCardId) {
+				continue;
+			}
+			if (card.roadmapItemId !== roadmapItemId) {
+				continue;
+			}
+			if (card.role === "project_agent") {
+				continue;
+			}
+			subtasks.push(card);
+		}
+	}
+	return subtasks;
+}
+
+/**
+ * Check whether every sub-task of a project card has reached the `trash`
+ * column (the terminal "done" state in this codebase).
+ *
+ * Returns `true` when there are no sub-tasks at all (vacuously done).
+ */
+export function areAllProjectSubtasksDone(board: RuntimeBoardData, projectCardId: string): boolean {
+	const subtasks = getProjectSubtasks(board, projectCardId);
+	if (subtasks.length === 0) {
+		return true;
+	}
+
+	const subtaskIds = new Set(subtasks.map((s) => s.id));
+
+	for (const column of board.columns) {
+		if (column.id === "trash") {
+			continue;
+		}
+		for (const card of column.cards) {
+			if (subtaskIds.has(card.id)) {
+				return false;
+			}
+		}
+	}
+	return true;
 }

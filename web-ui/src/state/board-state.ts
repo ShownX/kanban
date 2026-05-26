@@ -675,21 +675,44 @@ export function applyTaskDetailClineSettingsChange(
 }
 
 export function disableTaskAutoReview(board: BoardData, taskId: string): { board: BoardData; updated: boolean } {
-	const selection = findCardSelection(board, taskId);
-	if (!selection) {
-		return { board, updated: false };
-	}
-
-	return updateTask(board, taskId, {
-		prompt: selection.card.prompt,
-		startInPlanMode: selection.card.startInPlanMode,
-		autoReviewEnabled: false,
-		autoReviewMode: DEFAULT_TASK_AUTO_REVIEW_MODE,
-		images: selection.card.images,
-		agentId: selection.card.agentId,
-		clineSettings: selection.card.clineSettings,
-		baseRef: selection.card.baseRef,
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) return card;
+			columnUpdated = true;
+			updated = true;
+			return {
+				...card,
+				autoReviewEnabled: false,
+				autoReviewMode: DEFAULT_TASK_AUTO_REVIEW_MODE,
+				updatedAt: Date.now(),
+			};
+		});
+		return columnUpdated ? { ...column, cards } : column;
 	});
+	if (!updated) return { board, updated: false };
+	return { board: withUpdatedColumns(board, columns), updated: true };
+}
+
+export function enableTaskAutoReview(
+	board: BoardData,
+	taskId: string,
+	mode: TaskAutoReviewMode = DEFAULT_TASK_AUTO_REVIEW_MODE,
+): { board: BoardData; updated: boolean } {
+	let updated = false;
+	const columns = board.columns.map((column) => {
+		let columnUpdated = false;
+		const cards = column.cards.map((card) => {
+			if (card.id !== taskId) return card;
+			columnUpdated = true;
+			updated = true;
+			return { ...card, autoReviewEnabled: true, autoReviewMode: mode, updatedAt: Date.now() };
+		});
+		return columnUpdated ? { ...column, cards } : column;
+	});
+	if (!updated) return { board, updated: false };
+	return { board: withUpdatedColumns(board, columns), updated: true };
 }
 
 export function removeTask(board: BoardData, taskId: string): { board: BoardData; removed: boolean } {

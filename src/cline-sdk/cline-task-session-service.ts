@@ -18,7 +18,7 @@ import {
 	compactPersistedMessagesForContextOverflow,
 	isContextOverflowError,
 } from "./cline-context-overflow-compaction";
-import { applyClineSessionEvent } from "./cline-event-adapter";
+import { applyClineSessionEvent, type ClineUsageEventData } from "./cline-event-adapter";
 import {
 	type ClineMessageRepository,
 	createInMemoryClineMessageRepository,
@@ -56,6 +56,7 @@ import {
 	resolveClineSdkSystemPrompt,
 } from "./sdk-runtime-boundary.js";
 
+export type { ClineUsageEventData } from "./cline-event-adapter";
 export type { ClineTaskMessage } from "./cline-session-state";
 
 export interface StartClineTaskSessionRequest {
@@ -81,6 +82,7 @@ export interface StartClineTaskSessionRequest {
 export interface ClineTaskSessionService {
 	onSummary(listener: (summary: RuntimeTaskSessionSummary) => void): () => void;
 	onMessage(listener: (taskId: string, message: ClineTaskMessage) => void): () => void;
+	onUsage(listener: (taskId: string, usage: ClineUsageEventData) => void): () => void;
 	startTaskSession(request: StartClineTaskSessionRequest): Promise<RuntimeTaskSessionSummary>;
 	stopTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	abortTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
@@ -164,6 +166,7 @@ function buildClineStartPrompt(prompt: string, startInPlanMode?: boolean): strin
 export class InMemoryClineTaskSessionService implements ClineTaskSessionService {
 	private readonly pendingTurnCancelTaskIds = new Set<string>();
 	private readonly providerIdByTaskId = new Map<string, string>();
+	private readonly usageListeners = new Set<(taskId: string, usage: ClineUsageEventData) => void>();
 	private readonly sessionRuntime: ClineSessionRuntime;
 	private readonly messageRepository: ClineMessageRepository;
 	private readonly watcherRegistry: ClineWatcherRegistry;
@@ -191,6 +194,19 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 	onMessage(listener: (taskId: string, message: ClineTaskMessage) => void): () => void {
 		return this.messageRepository.onMessage(listener);
+	}
+
+	onUsage(listener: (taskId: string, usage: ClineUsageEventData) => void): () => void {
+		this.usageListeners.add(listener);
+		return () => {
+			this.usageListeners.delete(listener);
+		};
+	}
+
+	private emitUsage(taskId: string, usage: ClineUsageEventData): void {
+		for (const listener of this.usageListeners) {
+			listener(taskId, usage);
+		}
 	}
 
 	private resolveProviderIdForTask(taskId: string): string {
@@ -890,6 +906,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 			},
 			emitMessage: (taskIdFromEvent: string, message: ClineTaskMessage) => {
 				this.emitMessage(taskIdFromEvent, message);
+			},
+			emitUsage: (usage: ClineUsageEventData) => {
+				this.emitUsage(taskId, usage);
 			},
 		});
 		const shouldAbortForCreditLimit =

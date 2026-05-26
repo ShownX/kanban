@@ -2,6 +2,7 @@ import { access, lstat, mkdir, readdir, readFile, rm, symlink } from "node:fs/pr
 import { dirname, isAbsolute, join } from "node:path";
 
 import type {
+	RuntimeBoardCardRole,
 	RuntimeTaskWorkspaceInfoResponse,
 	RuntimeWorktreeDeleteResponse,
 	RuntimeWorktreeEnsureResponse,
@@ -9,6 +10,7 @@ import type {
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { getRuntimeHomePath, getTaskWorktreesHomePath, loadWorkspaceContext } from "../state/workspace-state";
 import { getGitCommandErrorMessage, getGitStdout, readGitHeadInfo, runGit } from "./git-utils";
+import { cleanupSubtaskBranch, mergeSubtaskIntoProject, resolveSubtaskMergeBranches } from "./project-merge";
 import { getWorkspaceFolderLabelForWorktreePath, normalizeTaskIdForWorktreePath } from "./task-worktree-path";
 import { listTurbopackNodeModulesSymlinkSkipPaths } from "./task-worktree-turbopack";
 
@@ -434,10 +436,58 @@ async function pruneEmptyParents(rootPath: string, fromPath: string): Promise<vo
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Hierarchical branching for project agents and sub-tasks
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the worktree branch strategy based on the card's role and specSlug.
+ *
+ * - **project_agent** cards get a named branch `project/<specSlug>`, branching
+ *   off whatever `baseRef` the card carries (typically `main`).
+ * - **sub-task** cards whose `baseRef` starts with `project/` get a named
+ *   branch `project/<specSlug>/<taskId>`, branching off the project branch.
+ * - Everything else stays on a detached HEAD (the existing default).
+ */
+export function resolveWorktreeBranch(options: {
+	taskId: string;
+	baseRef: string;
+	role?: RuntimeBoardCardRole;
+	specSlug?: string;
+}): { branchName: string | null; baseBranch: string } {
+	const { taskId, baseRef, role, specSlug } = options;
+
+	if (role === "project_agent" && specSlug) {
+		return {
+			branchName: `project/${specSlug}`,
+			baseBranch: baseRef,
+		};
+	}
+
+	if (baseRef.startsWith("project/")) {
+		// Sub-task branching off a project branch.
+		// The baseRef is already `project/<specSlug>`, so derive a child branch.
+		return {
+			branchName: `${baseRef}/${taskId}`,
+			baseBranch: baseRef,
+		};
+	}
+
+	// Standalone task — detached HEAD, no named branch.
+	return {
+		branchName: null,
+		baseBranch: baseRef,
+	};
+}
+
 export async function ensureTaskWorktreeIfDoesntExist(options: {
 	cwd: string;
 	taskId: string;
 	baseRef: string;
+	/** Card role — used to decide between detached HEAD and a named branch. */
+	role?: RuntimeBoardCardRole;
+	/** Spec slug for project-related cards (drives the branch name). */
+	specSlug?: string;
 }): Promise<RuntimeWorktreeEnsureResponse> {
 	try {
 		const context = await loadWorkspaceContext(options.cwd);
@@ -542,6 +592,32 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 				}
 			}
 
+			// For project agents and sub-tasks, create a named branch in the
+			// worktree instead of leaving it on a detached HEAD. This enables
+			// sub-tasks to branch off the project branch.
+			const branchInfo = resolveWorktreeBranch({
+				taskId: options.taskId,
+				baseRef: requestedBaseRef,
+				role: options.role,
+				specSlug: options.specSlug,
+			});
+
+			if (branchInfo.branchName) {
+				// Check whether the branch already exists (e.g. from a previous run).
+				const branchExists = await runGit(context.repoPath, [
+					"rev-parse",
+					"--verify",
+					`refs/heads/${branchInfo.branchName}`,
+				]);
+				if (branchExists.ok) {
+					// Branch exists — check it out in the worktree.
+					await runGit(worktreePath, ["checkout", branchInfo.branchName]);
+				} else {
+					// Create a new branch at the current HEAD commit.
+					await runGit(worktreePath, ["checkout", "-b", branchInfo.branchName]);
+				}
+			}
+
 			return {
 				ok: true,
 				path: worktreePath,
@@ -565,17 +641,67 @@ export async function ensureTaskWorktreeIfDoesntExist(options: {
 export async function deleteTaskWorktree(options: {
 	repoPath: string;
 	taskId: string;
+	/** Base ref of the card — used to detect project sub-tasks that need merging. */
+	baseRef?: string;
+	/** Card role — project sub-tasks are merged before cleanup. */
+	role?: RuntimeBoardCardRole;
 }): Promise<RuntimeWorktreeDeleteResponse> {
 	try {
 		const taskId = normalizeTaskIdForWorktreePath(options.taskId);
 		const rootPath = getWorktreesBaseRootPath();
 		const worktreePath = getTaskWorktreePath(options.repoPath, taskId);
+
+		// -------------------------------------------------------------------
+		// Determine whether this card is a project sub-task that needs its
+		// branch merged into the project branch before cleanup.
+		// -------------------------------------------------------------------
+		const mergeBranches =
+			options.baseRef && options.role !== "project_agent"
+				? resolveSubtaskMergeBranches({
+						taskId: options.taskId,
+						baseRef: options.baseRef,
+						role: options.role,
+					})
+				: null;
+
+		// -------------------------------------------------------------------
+		// Merge sub-task branch into the project branch (if applicable).
+		// This must happen BEFORE the worktree is removed so the subtask
+		// branch's commits are still accessible for the merge.
+		// -------------------------------------------------------------------
+		let mergeResult: RuntimeWorktreeDeleteResponse["merge"];
+		if (mergeBranches) {
+			mergeResult = { attempted: true, success: false };
+			try {
+				const merge = await mergeSubtaskIntoProject({
+					repoPath: options.repoPath,
+					subtaskBranch: mergeBranches.subtaskBranch,
+					projectBranch: mergeBranches.projectBranch,
+				});
+				mergeResult.success = merge.success;
+				if (!merge.success) {
+					mergeResult.error = merge.error;
+				}
+			} catch (error) {
+				mergeResult.error = error instanceof Error ? error.message : String(error);
+			}
+		}
+
 		if (!(await pathExists(worktreePath))) {
 			await deleteTaskPatchFiles(taskId);
 			await pruneEmptyParents(rootPath, dirname(worktreePath));
+			// Branch cleanup can happen even when there is no worktree since
+			// branches are repo-global.
+			if (mergeBranches && mergeResult?.success) {
+				await cleanupSubtaskBranch({
+					repoPath: options.repoPath,
+					subtaskBranch: mergeBranches.subtaskBranch,
+				}).catch(() => {});
+			}
 			return {
 				ok: true,
 				removed: false,
+				...(mergeResult ? { merge: mergeResult } : {}),
 			};
 		}
 
@@ -592,9 +718,20 @@ export async function deleteTaskWorktree(options: {
 		const removed = await removeTaskWorktreeInternal(options.repoPath, worktreePath);
 		await pruneEmptyParents(rootPath, dirname(worktreePath));
 
+		// Clean up the subtask branch AFTER the worktree is removed. Git
+		// refuses to delete a branch that is checked out in any worktree, so
+		// the worktree must be gone first.
+		if (mergeBranches && mergeResult?.success) {
+			await cleanupSubtaskBranch({
+				repoPath: options.repoPath,
+				subtaskBranch: mergeBranches.subtaskBranch,
+			}).catch(() => {});
+		}
+
 		return {
 			ok: true,
 			removed,
+			...(mergeResult ? { merge: mergeResult } : {}),
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -611,6 +748,8 @@ export async function resolveTaskCwd(options: {
 	taskId: string;
 	baseRef: string;
 	ensure?: boolean;
+	role?: RuntimeBoardCardRole;
+	specSlug?: string;
 }): Promise<string> {
 	const context = await loadWorkspaceContext(options.cwd);
 
@@ -624,6 +763,8 @@ export async function resolveTaskCwd(options: {
 			cwd: options.cwd,
 			taskId: options.taskId,
 			baseRef: normalizedBaseRef,
+			role: options.role,
+			specSlug: options.specSlug,
 		});
 		if (!ensured.ok) {
 			throw new Error(ensured.error ?? "Worktree setup failed.");

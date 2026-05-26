@@ -364,6 +364,17 @@ body,
 	border-radius: var(--radius-md);
 }
 
+@keyframes kb-card-highlight-pulse {
+	0% { box-shadow: 0 0 0 2px var(--color-accent); }
+	50% { box-shadow: 0 0 8px 2px var(--color-accent); }
+	100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.kb-board-card-shell[data-highlight="true"] {
+	border-radius: var(--radius-md);
+	animation: kb-card-highlight-pulse 0.8s ease-in-out 2;
+}
+
 .kb-board-card-dependency-source {
 	box-shadow: inset 0 0 0 1px var(--color-accent);
 }

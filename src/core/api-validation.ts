@@ -160,6 +160,8 @@ export function parseWorktreeEnsureRequest(value: unknown): RuntimeWorktreeEnsur
 	return {
 		taskId,
 		baseRef,
+		role: parsed.role,
+		specSlug: parsed.specSlug?.trim() || undefined,
 	};
 }
 
@@ -171,6 +173,8 @@ export function parseWorktreeDeleteRequest(value: unknown): RuntimeWorktreeDelet
 	}
 	return {
 		taskId,
+		...(parsed.baseRef ? { baseRef: parsed.baseRef.trim() } : {}),
+		...(parsed.role ? { role: parsed.role } : {}),
 	};
 }
 

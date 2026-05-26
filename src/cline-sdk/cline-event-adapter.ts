@@ -41,6 +41,12 @@ function toPreviewText(value: string | null | undefined, maxLength = 160): strin
 	return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1).trimEnd()}…` : normalized;
 }
 
+export interface ClineUsageEventData {
+	inputTokens: number;
+	outputTokens: number;
+	cost?: number;
+}
+
 export interface ApplyClineSessionEventInput {
 	event: unknown;
 	taskId: string;
@@ -49,6 +55,7 @@ export interface ApplyClineSessionEventInput {
 	isClineProvider: boolean;
 	emitSummary: (summary: RuntimeTaskSessionSummary) => void;
 	emitMessage: (taskId: string, message: ClineTaskMessage) => void;
+	emitUsage?: (usage: ClineUsageEventData) => void;
 }
 
 type ClineSdkChunkEvent = Extract<ClineSdkSessionEvent, { type: "chunk" }>;
@@ -495,6 +502,16 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 			emitSummary(input, {
 				lastOutputAt: now(),
 			});
+		}
+		return;
+	}
+
+	if (agentEvent?.type === "usage") {
+		const inputTokens = typeof agentEvent.inputTokens === "number" ? agentEvent.inputTokens : 0;
+		const outputTokens = typeof agentEvent.outputTokens === "number" ? agentEvent.outputTokens : 0;
+		const cost = typeof agentEvent.cost === "number" ? agentEvent.cost : undefined;
+		if ((inputTokens > 0 || outputTokens > 0) && input.emitUsage) {
+			input.emitUsage({ inputTokens, outputTokens, cost });
 		}
 		return;
 	}

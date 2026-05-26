@@ -49,6 +49,7 @@ export interface UseProjectNavigationResult {
 	projects: ReturnType<typeof useRuntimeStateStream>["projects"];
 	workspaceState: ReturnType<typeof useRuntimeStateStream>["workspaceState"];
 	workspaceMetadata: ReturnType<typeof useRuntimeStateStream>["workspaceMetadata"];
+	tokenUsage: ReturnType<typeof useRuntimeStateStream>["tokenUsage"];
 	latestTaskChatMessage: ReturnType<typeof useRuntimeStateStream>["latestTaskChatMessage"];
 	taskChatMessagesByTaskId: ReturnType<typeof useRuntimeStateStream>["taskChatMessagesByTaskId"];
 	latestTaskReadyForReview: ReturnType<typeof useRuntimeStateStream>["latestTaskReadyForReview"];
@@ -83,6 +84,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		projects,
 		workspaceState,
 		workspaceMetadata,
+		tokenUsage,
 		latestTaskChatMessage,
 		taskChatMessagesByTaskId,
 		latestTaskReadyForReview,
@@ -272,6 +274,7 @@ export function useProjectNavigation({ onProjectSwitchStart }: UseProjectNavigat
 		projects,
 		workspaceState,
 		workspaceMetadata,
+		tokenUsage,
 		latestTaskChatMessage,
 		taskChatMessagesByTaskId,
 		latestTaskReadyForReview,

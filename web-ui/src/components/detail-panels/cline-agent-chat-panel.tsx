@@ -89,8 +89,10 @@ export interface ClineAgentChatPanelProps {
 	incomingMessage?: ClineChatMessage | null;
 	onCommit?: () => void;
 	onOpenPr?: () => void;
+	onAiReview?: () => void;
 	isCommitLoading?: boolean;
 	isOpenPrLoading?: boolean;
+	isAiReviewLoading?: boolean;
 	onMoveToTrash?: () => void;
 	isMoveToTrashLoading?: boolean;
 	onCancelAutomaticAction?: () => void;
@@ -120,8 +122,10 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			incomingMessage,
 			onCommit,
 			onOpenPr,
+			onAiReview,
 			isCommitLoading = false,
 			isOpenPrLoading = false,
+			isAiReviewLoading = false,
 			onMoveToTrash,
 			isMoveToTrashLoading = false,
 			onCancelAutomaticAction,
@@ -465,6 +469,17 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 					<div className="flex flex-col gap-2 px-3 pb-3">
 						{showReviewActions ? (
 							<div className="flex gap-2">
+								{onAiReview ? (
+									<Button
+										variant="default"
+										size="sm"
+										fill
+										disabled={isCommitLoading || isOpenPrLoading || isAiReviewLoading}
+										onClick={onAiReview}
+									>
+										{isAiReviewLoading ? "..." : "AI Review"}
+									</Button>
+								) : null}
 								<Button
 									variant="primary"
 									size="sm"

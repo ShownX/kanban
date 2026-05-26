@@ -1,5 +1,6 @@
 import type {
 	RuntimeAgentId,
+	RuntimeBoardCardRole,
 	RuntimeBoardColumnId,
 	RuntimeRoadmapAnnotation,
 	RuntimeRoadmapComment,
@@ -51,6 +52,14 @@ export interface BoardCard {
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
 	baseRef: string;
+	/** Distinguishes project agent cards from regular tasks. */
+	role?: RuntimeBoardCardRole;
+	/** File paths this project agent owns. */
+	ownedPaths?: string[];
+	/** Which spec this card is implementing. */
+	specSlug?: string;
+	/** Roadmap item this card belongs to. */
+	roadmapItemId?: string;
 	createdAt: number;
 	updatedAt: number;
 }

@@ -46,6 +46,7 @@ interface StartTaskSessionResult {
 
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
+	resume?: boolean;
 }
 
 export interface UseTaskSessionsResult {
@@ -66,7 +67,10 @@ export interface UseTaskSessionsResult {
 	abortTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	cancelTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	fetchTaskChatMessages: (taskId: string) => Promise<RuntimeTaskChatMessage[] | null>;
-	cleanupTaskWorkspace: (taskId: string) => Promise<RuntimeWorktreeDeleteResponse | null>;
+	cleanupTaskWorkspace: (
+		taskId: string,
+		cardInfo?: { baseRef?: string; role?: BoardCard["role"] },
+	) => Promise<RuntimeWorktreeDeleteResponse | null>;
 	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }
 
@@ -128,6 +132,8 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				const payload = await trpcClient.workspace.ensureWorktree.mutate({
 					taskId: task.id,
 					baseRef: task.baseRef,
+					role: task.role,
+					specSlug: task.specSlug,
 				});
 				if (!payload.ok) {
 					return {
@@ -150,7 +156,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const kickoffPrompt = options?.resumeFromTrash ? "" : task.prompt.trim();
+				const kickoffPrompt = options?.resumeFromTrash || options?.resume ? "" : task.prompt.trim();
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
@@ -241,17 +247,29 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 	);
 
 	const cleanupTaskWorkspace = useCallback(
-		async (taskId: string): Promise<RuntimeWorktreeDeleteResponse | null> => {
+		async (
+			taskId: string,
+			cardInfo?: { baseRef?: string; role?: BoardCard["role"] },
+		): Promise<RuntimeWorktreeDeleteResponse | null> => {
 			if (!currentProjectId) {
 				return null;
 			}
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				const payload = await trpcClient.workspace.deleteWorktree.mutate({ taskId });
+				const payload = await trpcClient.workspace.deleteWorktree.mutate({
+					taskId,
+					...(cardInfo?.baseRef ? { baseRef: cardInfo.baseRef } : {}),
+					...(cardInfo?.role ? { role: cardInfo.role } : {}),
+				});
 				if (!payload.ok) {
 					const message = payload.error ?? "Could not clean up task workspace.";
 					console.error(`[cleanupTaskWorkspace] ${message}`);
 					return null;
+				}
+				if (payload.merge && !payload.merge.success && payload.merge.error) {
+					console.warn(
+						`[cleanupTaskWorkspace] Sub-task branch merge failed for ${taskId}: ${payload.merge.error}`,
+					);
 				}
 				return payload;
 			} catch (error) {

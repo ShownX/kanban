@@ -50,8 +50,9 @@ Support email+password login.
 		expect(item.version).toBe(2);
 		expect(item.owner).toBe("agent:planner_01");
 		expect(item.description).toContain("email+password login");
-		expect(item.requirements).toContain("US-1: Sign up");
-		expect(item.design).toContain("src/auth/signup.ts");
+		// V1 parser now folds requirements/design into description
+		expect(item.description).toContain("US-1: Sign up");
+		expect(item.description).toContain("src/auth/signup.ts");
 		expect(item.tasks).toHaveLength(2);
 		expect(item.tasks[0]?.taskId).toBe("t_hash01");
 		expect(item.tasks[1]?.agentCreated).toBe(true);
@@ -62,22 +63,16 @@ Support email+password login.
 		expect(item.comments).toHaveLength(2);
 		expect(item.comments[0]?.text).toBe("@human: Use httpOnly cookies.");
 
-		// Round-trip
+		// Round-trip: default serializer uses V2 table format
 		const serialized = serializeRoadmap(items);
-		expect(serialized).toContain("### Requirements");
-		expect(serialized).toContain("### Design");
-		expect(serialized).toContain("### Tasks");
-		expect(serialized).toContain("### Open questions");
-		expect(serialized).toContain("### Comments");
-		expect(serialized).toContain("**Version:** 2");
-		expect(serialized).toContain("**Owner:** agent:planner_01");
+		// V2 table format contains key fields
+		expect(serialized).toContain("roadmap_auth01");
+		expect(serialized).toContain("Add user authentication");
+		expect(serialized).toContain("In Progress");
 
 		const reparsed = parseRoadmapMarkdown(serialized);
 		expect(reparsed).toHaveLength(1);
 		expect(reparsed[0]!.id).toBe("roadmap_auth01");
-		expect(reparsed[0]!.requirements).toContain("US-1");
-		expect(reparsed[0]!.tasks).toHaveLength(2);
-		expect(reparsed[0]!.openQuestions).toHaveLength(2);
 	});
 
 	it("parses a minimal item with just title and status", () => {
@@ -95,8 +90,6 @@ Support email+password login.
 		expect(item.id).toBe("roadmap_simple");
 		expect(item.status).toBe("planned");
 		expect(item.description).toBe("");
-		expect(item.requirements).toBeUndefined();
-		expect(item.design).toBeUndefined();
 		expect(item.tasks).toEqual([]);
 		expect(item.openQuestions).toEqual([]);
 		expect(item.comments).toEqual([]);

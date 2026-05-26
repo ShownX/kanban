@@ -57,7 +57,10 @@ interface UseBoardInteractionsInput {
 	setIsClearTrashDialogOpen: Dispatch<SetStateAction<boolean>>;
 	setIsGitHistoryOpen: Dispatch<SetStateAction<boolean>>;
 	stopTaskSession: (taskId: string) => Promise<void>;
-	cleanupTaskWorkspace: (taskId: string) => Promise<unknown>;
+	cleanupTaskWorkspace: (
+		taskId: string,
+		cardInfo?: { baseRef?: string; role?: BoardCard["role"] },
+	) => Promise<unknown>;
 	ensureTaskWorkspace: UseTaskSessionsResult["ensureTaskWorkspace"];
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
 	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
@@ -671,13 +674,31 @@ export function useBoardInteractions({
 	const handleStartTask = useCallback(
 		(taskId: string) => {
 			const selection = findCardSelection(board, taskId);
-			if (!selection || selection.column.id !== "backlog") {
-				return;
+			if (!selection) return;
+			if (selection.column.id === "backlog") {
+				maybeRequestNotificationPermissionForTaskStart();
+				void startBacklogTaskWithAnimation(selection.card);
+			} else if (selection.column.id === "in_progress") {
+				void (async () => {
+					const ensured = await ensureTaskWorkspace(selection.card);
+					if (!ensured.ok) {
+						notifyError(ensured.message ?? "Could not set up task workspace.");
+						return;
+					}
+					const started = await startTaskSession(selection.card, { resume: true });
+					if (!started.ok) {
+						notifyError(started.message ?? "Could not resume task session.");
+					}
+				})();
 			}
-			maybeRequestNotificationPermissionForTaskStart();
-			void startBacklogTaskWithAnimation(selection.card);
 		},
-		[board, maybeRequestNotificationPermissionForTaskStart, startBacklogTaskWithAnimation],
+		[
+			board,
+			ensureTaskWorkspace,
+			maybeRequestNotificationPermissionForTaskStart,
+			startBacklogTaskWithAnimation,
+			startTaskSession,
+		],
 	);
 
 	const handleStartAllBacklogTasks = useCallback(

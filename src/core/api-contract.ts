@@ -1477,3 +1477,122 @@ export const runtimeHookIngestResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// KPI tracking — see .plan/docs/kpi-tracking-design.md
+// ---------------------------------------------------------------------------
+//
+// The transport schemas mirror the storage schemas in
+// src/workspace/project-kpi.ts but live here so the browser bundle gets
+// the types without pulling in node-only modules. Keep the two in sync
+// when adding fields.
+
+export const runtimeKpiTargetSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("boolean") }),
+	z.object({
+		kind: z.literal("numeric"),
+		op: z.enum([">=", "<=", "==", "<", ">"]),
+		value: z.number(),
+		unit: z.string().optional(),
+	}),
+	z.object({
+		kind: z.literal("rubric"),
+		levels: z.array(z.string()).min(2),
+		minimum: z.string(),
+	}),
+]);
+export type RuntimeKpiTarget = z.infer<typeof runtimeKpiTargetSchema>;
+
+export const runtimeKpiAcceptanceSchema = z.enum(["manual", "auto-from-task", "auto-from-validator"]);
+export const runtimeKpiAggregateSchema = z.enum(["latest", "sum", "min", "max", "all-must-meet"]);
+export const runtimeKpiStatusSchema = z.enum(["open", "met", "missed", "waived"]);
+export const runtimeKpiReadingSourceSchema = z.enum(["task", "validator", "manual"]);
+
+export const runtimeKpiReadingSchema = z.object({
+	recordedAt: z.string(),
+	source: runtimeKpiReadingSourceSchema,
+	taskId: z.string().optional(),
+	validatorCheck: z.string().optional(),
+	experimentLog: z.string().optional(),
+	booleanValue: z.boolean().optional(),
+	numericValue: z.number().optional(),
+	rubricValue: z.string().optional(),
+	note: z.string().optional(),
+});
+export type RuntimeKpiReading = z.infer<typeof runtimeKpiReadingSchema>;
+
+export const runtimeKpiOverrideSchema = z.object({
+	status: runtimeKpiStatusSchema,
+	reason: z.string(),
+	reviewer: z.string(),
+	decidedAt: z.string(),
+});
+
+export const runtimeProjectKpiSchema = z.object({
+	id: z.string(),
+	label: z.string(),
+	description: z.string().optional(),
+	target: runtimeKpiTargetSchema,
+	acceptance: runtimeKpiAcceptanceSchema,
+	aggregate: runtimeKpiAggregateSchema,
+	readings: z.array(runtimeKpiReadingSchema),
+	override: runtimeKpiOverrideSchema.optional(),
+});
+export type RuntimeProjectKpi = z.infer<typeof runtimeProjectKpiSchema>;
+
+export const runtimeKpiEvaluationSchema = z.object({
+	status: runtimeKpiStatusSchema,
+	aggregatedValue: z.union([z.boolean(), z.number(), z.string(), z.null()]),
+	contributingReadings: z.array(runtimeKpiReadingSchema),
+	warnings: z.array(z.string()),
+});
+export type RuntimeKpiEvaluation = z.infer<typeof runtimeKpiEvaluationSchema>;
+
+export const runtimeKpiSnapshotEntrySchema = z.object({
+	definition: runtimeProjectKpiSchema,
+	evaluation: runtimeKpiEvaluationSchema,
+});
+
+export const runtimeKpiSnapshotSchema = z.object({
+	itemId: z.string(),
+	kpis: z.array(runtimeKpiSnapshotEntrySchema),
+	allMet: z.boolean(),
+	blockingKpis: z.array(z.string()),
+	warnings: z.array(z.string()),
+});
+export type RuntimeKpiSnapshot = z.infer<typeof runtimeKpiSnapshotSchema>;
+
+export const runtimeKpiSnapshotRequestSchema = z.object({
+	roadmapItemId: z.string(),
+});
+export type RuntimeKpiSnapshotRequest = z.infer<typeof runtimeKpiSnapshotRequestSchema>;
+
+export const runtimeKpiRecordReadingRequestSchema = z.object({
+	roadmapItemId: z.string(),
+	kpiId: z.string(),
+	reading: runtimeKpiReadingSchema,
+});
+export type RuntimeKpiRecordReadingRequest = z.infer<typeof runtimeKpiRecordReadingRequestSchema>;
+
+export const runtimeKpiRecordSubReadingRequestSchema = z.object({
+	taskId: z.string(),
+	subKpiId: z.string(),
+	reading: runtimeKpiReadingSchema,
+});
+export type RuntimeKpiRecordSubReadingRequest = z.infer<typeof runtimeKpiRecordSubReadingRequestSchema>;
+
+export const runtimeKpiOverrideRequestSchema = z.object({
+	roadmapItemId: z.string(),
+	kpiId: z.string(),
+	override: runtimeKpiOverrideSchema,
+});
+export type RuntimeKpiOverrideRequest = z.infer<typeof runtimeKpiOverrideRequestSchema>;
+
+export const runtimeKpiClearOverrideRequestSchema = z.object({
+	roadmapItemId: z.string(),
+	kpiId: z.string(),
+});
+export type RuntimeKpiClearOverrideRequest = z.infer<typeof runtimeKpiClearOverrideRequestSchema>;
+
+export const runtimeKpiOkResponseSchema = z.object({ ok: z.boolean() });
+export type RuntimeKpiOkResponse = z.infer<typeof runtimeKpiOkResponseSchema>;

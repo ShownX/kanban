@@ -143,6 +143,13 @@ import {
 	runtimeGitSyncResponseSchema,
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
+	runtimeKpiClearOverrideRequestSchema,
+	runtimeKpiOkResponseSchema,
+	runtimeKpiOverrideRequestSchema,
+	runtimeKpiRecordReadingRequestSchema,
+	runtimeKpiRecordSubReadingRequestSchema,
+	runtimeKpiSnapshotRequestSchema,
+	runtimeKpiSnapshotSchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -194,6 +201,15 @@ import {
 	validationReviewOutcomeIoSchema,
 } from "../core/api-contract";
 import { experimentLogEntrySchema } from "../workspace/experiment-log-file.js";
+import { loadProjectKpisForItem } from "../workspace/kpi-roadmap-loader.js";
+import { buildKpiSnapshot } from "../workspace/kpi-snapshot.js";
+import {
+	appendKpiReading,
+	appendSubKpiReading,
+	clearKpiOverride,
+	readKpiStateFile,
+	setKpiOverride,
+} from "../workspace/kpi-state-file.js";
 import {
 	changelogEntryInputSchema as sharedMemoryChangelogEntryInputSchema,
 	changelogEntrySchema as sharedMemoryChangelogEntrySchema,
@@ -1085,6 +1101,62 @@ export const runtimeAppRouter = t.router({
 		runUpdateNow: t.procedure.output(runtimeRunUpdateResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.runtimeApi.runUpdateNow(ctx.workspaceScope);
 		}),
+		// -------------------------------------------------------------------
+		// KPI tracking — see .plan/docs/kpi-tracking-design.md
+		// -------------------------------------------------------------------
+		getKpiSnapshot: workspaceProcedure
+			.input(runtimeKpiSnapshotRequestSchema)
+			.output(runtimeKpiSnapshotSchema)
+			.query(async ({ ctx, input }) => {
+				const workspaceRoot = ctx.workspaceScope.workspacePath;
+				const { values: definitions, warnings } = await loadProjectKpisForItem(workspaceRoot, input.roadmapItemId);
+				const state = await readKpiStateFile(workspaceRoot);
+				const snapshot = buildKpiSnapshot({ itemId: input.roadmapItemId, definitions, state });
+				return { ...snapshot, warnings };
+			}),
+		recordKpiReading: workspaceProcedure
+			.input(runtimeKpiRecordReadingRequestSchema)
+			.output(runtimeKpiOkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				await appendKpiReading(ctx.workspaceScope.workspacePath, {
+					itemId: input.roadmapItemId,
+					kpiId: input.kpiId,
+					reading: input.reading,
+				});
+				return { ok: true };
+			}),
+		recordSubKpiReading: workspaceProcedure
+			.input(runtimeKpiRecordSubReadingRequestSchema)
+			.output(runtimeKpiOkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				await appendSubKpiReading(ctx.workspaceScope.workspacePath, {
+					taskId: input.taskId,
+					subKpiId: input.subKpiId,
+					reading: input.reading,
+				});
+				return { ok: true };
+			}),
+		setKpiOverride: workspaceProcedure
+			.input(runtimeKpiOverrideRequestSchema)
+			.output(runtimeKpiOkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				await setKpiOverride(ctx.workspaceScope.workspacePath, {
+					itemId: input.roadmapItemId,
+					kpiId: input.kpiId,
+					override: input.override,
+				});
+				return { ok: true };
+			}),
+		clearKpiOverride: workspaceProcedure
+			.input(runtimeKpiClearOverrideRequestSchema)
+			.output(runtimeKpiOkResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				await clearKpiOverride(ctx.workspaceScope.workspacePath, {
+					itemId: input.roadmapItemId,
+					kpiId: input.kpiId,
+				});
+				return { ok: true };
+			}),
 	}),
 	workspace: t.router({
 		getGitSummary: workspaceProcedure

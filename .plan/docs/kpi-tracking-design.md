@@ -146,6 +146,12 @@ export const kpiReadingSchema = z.object({
   note: z.string().optional(),
 });
 
+// How multiple readings on the same KPI combine into a single value.
+// Default `latest` is right for booleans and most numerics; `sum` is needed
+// when sub-KPIs across multiple tasks each contribute a portion (e.g.
+// "six structured checks" = 5 from one task + 1 from another).
+export const kpiAggregateSchema = z.enum(["latest", "sum", "min", "max", "all-must-meet"]);
+
 // A KPI on a roadmap item
 export const projectKpiSchema = z.object({
   id: z.string(),                               // stable, human-readable, kebab-case
@@ -153,8 +159,11 @@ export const projectKpiSchema = z.object({
   description: z.string().optional(),
   target: kpiTargetSchema,
   acceptance: kpiAcceptanceSchema.default("manual"),
+  // How readings roll up into the value the target is checked against.
+  aggregate: kpiAggregateSchema.default("latest"),
   status: kpiStatusSchema.default("open"),
-  // Latest reading is what drives status. History lives below for audit.
+  // Every reading kept for audit. Status is recomputed from `readings`
+  // (after applying `aggregate`) on every read.
   readings: z.array(kpiReadingSchema).default([]),
   // Optional manual override; if present, status reflects this and
   // readings are still kept for audit.
@@ -192,36 +201,46 @@ when they want measurability; nothing happens automatically.
 
 ## How a KPI becomes "met"
 
-Three rules, applied in order:
+Four rules, applied in order:
 
 1. **Override wins.** If `kpi.override` is set, that's the status,
    regardless of readings. This is the escape hatch for human judgment.
 
-2. **Latest matching reading.** Walk `readings` newest-first. Find the
-   first reading that's compatible with the target's `kind`
-   (boolean reading for boolean target, etc.). If the reading
-   satisfies the target, status is `met`; otherwise `missed`.
+2. **Filter readings to the relevant source.** The `acceptance` field
+   controls **who** can append readings; the status check ignores
+   readings from other sources:
+   - `manual` — only readings with `source: "manual"` count.
+   - `auto-from-task` — readings with `source: "task"` count.
+   - `auto-from-validator` — readings with `source: "validator"`
+     count. **Phase B**: this acceptance policy is *declared but not
+     enforced* — the `kpi_coverage` check skips these KPIs and the UI
+     shows a "Phase C will measure" hint badge so the reviewer knows
+     the absence of a reading is by design, not a forgotten
+     measurement. Manual override still works.
 
-3. **No readings yet.** Status is `open`.
+3. **Aggregate per `kpi.aggregate`.** With the relevant readings:
+   - `latest` (default) — most recent reading wins.
+   - `sum` — numeric only; readings summed, result compared to target.
+     Used for "split a target across multiple tasks" (e.g. six checks
+     = 5 + 1).
+   - `min` / `max` — numeric or rubric; the worst / best reading wins.
+     `min` is for "every contributor must clear this bar"; `max` is
+     for "any contributor clearing the bar is enough."
+   - `all-must-meet` — every reading must individually satisfy the
+     target. Used for boolean/rubric "every linked task confirms it."
 
-The `acceptance` field controls **who** can append readings:
+4. **No relevant readings.** Status is `open`.
 
-- `manual` — only readings with `source: "manual"` count. Reviewer adds
-  them through the UI / a CLI command.
-- `auto-from-task` — readings with `source: "task"` count. Sub-KPI
-  readings on a linked task automatically forward to the parent KPI
-  when the task is accepted (see rollup below).
-- `auto-from-validator` — readings with `source: "validator"` count.
-  Phase C only; validator emits structured measurements.
-
-For `boolean` targets, `met` ↔ `booleanValue === true`.
-For `numeric` targets, the reading's `numericValue` is compared via
-`target.op` to `target.value`.
-For `rubric` targets, the reading's `rubricValue` is checked against
+For `boolean` targets, `met` ↔ aggregated value is `true`.
+For `numeric` targets, aggregated value is compared via `target.op` to
+`target.value`.
+For `rubric` targets, aggregated value is checked against
 `target.minimum` using the order in `target.levels`.
 
 If a reading's value type doesn't match the target kind, it's ignored
-(don't crash; surface a warning in the UI).
+(don't crash; surface a warning in the UI). Same applies if `aggregate`
+is incompatible with the target kind (e.g. `sum` on a boolean) — fall
+back to `latest` and surface a warning so the planner can fix it.
 
 ## Sub-KPI → KPI rollup
 
@@ -232,12 +251,20 @@ When a task with a sub-KPI is accepted (validation `accepted`):
    - If the parent's `acceptance === "auto-from-task"`, append the
      sub-KPI's latest reading to the parent's `readings`, tagged
      `source: "task"` with the originating `taskId`.
-   - The parent's status is recomputed using the rules above.
+   - The parent's status is recomputed via the four rules above —
+     including the `aggregate` step, which is what makes "5 + 1 = 6"
+     work for sum-aggregated KPIs.
 2. If the sub-KPI itself has no reading at acceptance time, do nothing —
    the agent didn't measure it, so the parent doesn't pretend it did.
-3. If multiple tasks contribute readings to the same parent, the latest
-   reading wins for status, but every reading is preserved in
-   `readings` for audit.
+3. Every contributing reading is preserved in `parent.readings` for
+   audit, regardless of which one(s) the aggregate uses.
+
+Sub-KPI confirmation in the validation panel is **informational only**.
+The deliverable-validation panel surfaces sub-KPIs and their readings,
+but accept/reject is not gated on sub-KPI completeness — the
+`kpi_coverage` validator check (below) catches missing readings before
+the panel ever shows accept. Reviewers can override sub-KPI readings
+through the panel without that blocking the accept gesture.
 
 The auto-promote rule
 (`maybeUpdateRoadmapStatus`) becomes:
@@ -290,9 +317,17 @@ The validator (`workspace/validator.ts`) gains a seventh check:
 - For each KPI on the roadmap item with `acceptance: "auto-from-task"`,
   check whether **at least one linked task carries a sub-KPI with a
   matching `parentKpiId` and a non-empty reading.**
+- KPIs with `acceptance: "manual"` are skipped — the reviewer is
+  expected to record those out-of-band; absence of a reading is not
+  an agent bug.
+- KPIs with `acceptance: "auto-from-validator"` are skipped in Phase B
+  with a `details` line that calls out the deferral by name (so the
+  reviewer sees "kpi.foo declared as auto-from-validator; Phase C
+  will measure"). Status reported as `pass` for the check; the KPI
+  itself stays `open` until the reviewer waives or Phase C lands.
 - If a KPI has no contributing reading: status `needs_review` with
   message listing the unfunded KPIs.
-- If every KPI is covered: `pass`.
+- If every relevant KPI is covered: `pass`.
 - If the item has no KPIs: `pass` (vacuously) — same as today's prose
   goal.
 
@@ -397,38 +432,59 @@ questions from C:
 - External metric ingest. Wire up Prometheus / Grafana / OpenTelemetry
   exporters for teams that already feed metrics elsewhere.
 
-## Open questions to settle before code starts
+## Decisions absorbed from the paper trace
 
-1. **Where does the KPI markdown live?** Inside the existing roadmap
-   block (one `### KPIs` section per item) or a sidecar
-   `.kanban/specs/<slug>/kpis.md`? I lean toward inline-in-roadmap so
-   the planner sees KPIs while editing the rest. Risk: the roadmap
-   markdown gets longer.
-2. **Sub-KPI authoring.** Does the agent declare its own sub-KPIs in
-   `tasks.md` / the deliverable, or does the planner declare every
-   sub-KPI up front and the agent only fills in readings? Tradeoff
-   between agent autonomy and planner control. Recommend: planner
-   declares parentKpiId↔subKpiId pairs; agent records readings against
-   pre-declared slots.
-3. **Numeric target operators.** Five ops (`>= <= == < >`) cover most
-   cases. Do we need ranges (`200ms ≤ p99 ≤ 500ms`)? Probably yes
-   eventually; can be added as a `between` op without breaking the
-   discriminated union.
-4. **Override audit.** When a reviewer overrides a `missed` KPI to
-   `waived`, where does the reason live? Inline on the KPI (current
-   plan) is enough for human review but loses git auditability.
-   Should we mirror to validation-report.md the way reviews already
-   do? Recommend: yes — same pattern, same code path.
-5. **Pre-existing roadmaps.** What's the migration story? An item with
-   no KPIs uses today's auto-promote rule, so nothing breaks. The
-   onboarding question is "how do we encourage planners to add KPIs?"
-   — probably a one-shot prompt nudge in the planner addendum and a
-   gentle banner in the UI when an item still has only a prose goal.
-6. **Phase B scope cut.** The full doc above is ~2 weeks of work.
-   Smallest landable Phase B slice: schema + KPI panel UI + manual
-   reading + the new `kpi_coverage` validator check, no CLI, no
-   sub-KPI rollup. ~1 week. Worth doing as a staging branch before
-   we commit to the rest.
+The paper-trace exercise (`.plan/docs/kpi-tracking-paper-trace.md`)
+walked the design against the deliverable-validation feature on
+`feat/roadmap-panel`. The fixes below are folded into the schema and
+rules above; what's listed here is just the rationale.
+
+1. **Where does the KPI markdown live?** Inline in roadmap. An item
+   with 8 KPIs is still readable (Step 6 of the trace); a sidecar
+   would scatter context.
+2. **Sub-KPI authoring.** Planner declares `parentKpiId ↔ subKpiId`
+   pairs in `tasks.md`; agent fills in readings via the deliverable.
+3. **Numeric target operators.** Five ops (`>= <= == < >`) cover
+   Phase B. `between` op added later if a real example needs ranges
+   — backwards-compatible extension to the discriminated union.
+4. **Override audit.** Mirror to `validation-report.md` `## KPI
+   Overrides` section. Same pattern as `## Reviews`.
+5. **Pre-existing roadmaps.** Items with empty `kpis: []` use today's
+   auto-promote rule unchanged. UI banner: "this item has a prose
+   goal but no measurable KPIs — consider adding one for clarity."
+6. **Sub-KPI rollup aggregation.** Default `latest`; sum / min / max
+   / all-must-meet available for the cases where latest-wins is
+   silently wrong (e.g. "six checks" = 5 + 1). Folded into the
+   schema as `kpiAggregateSchema` and into the four-rule "becomes
+   met" sequence above.
+7. **`auto-from-validator` in Phase B.** Skipped by `kpi_coverage`
+   with an explicit "Phase C will measure" `details` line. Status
+   stays `open` (or `waived` if the reviewer chooses); the gate is
+   visible.
+8. **Sub-KPI confirmation in the validation flow.** Informational
+   only. The accept/reject gesture is unchanged; `kpi_coverage`
+   already catches missing readings before the reviewer sees the
+   panel.
+9. **CI-derived metrics in Phase B.** Recorded via `manual` source
+   with the CI URL pasted into the note. A first-class
+   `auto-from-ci` policy waits for Phase C alongside the metric-
+   ingest pipeline.
+
+## What does NOT change in Phase B
+
+To keep scope crisp and shippable in the ~10-day commit:
+
+- No CI / external metric ingest pipeline. CI numbers are entered as
+  manual readings with a URL note.
+- No time-series store or charts (that's Phase C).
+- No automatic override expiry. A waived KPI stays waived until the
+  reviewer flips it back; we do not impose a 30-day re-review window.
+- No cross-item dashboards. The UI is per-item; a workspace-wide
+  "% of KPIs met" view waits for Phase C.
+- No KPI deletion via CLI in Phase B. Removing a KPI requires editing
+  the roadmap markdown directly. (The CLI grows `kpi remove` later.)
+- No shared KPIs across roadmap items. Each KPI belongs to exactly
+  one item; if two items need the same target, they declare it twice.
 
 ## What lands in this branch (`feat/kpi-tracking-design`)
 

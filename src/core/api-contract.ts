@@ -1527,6 +1527,7 @@ export const runtimeKpiOverrideSchema = z.object({
 	reviewer: z.string(),
 	decidedAt: z.string(),
 });
+export type RuntimeKpiOverride = z.infer<typeof runtimeKpiOverrideSchema>;
 
 export const runtimeProjectKpiSchema = z.object({
 	id: z.string(),

@@ -4,6 +4,7 @@ import { RoadmapCreateTaskDialog } from "@/components/roadmap-create-task-dialog
 import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { BoardData, RoadmapItem } from "@/types";
 import { CommentCard, SelectionPopover } from "./comment-overlay";
+import { KpiPanel } from "./kpi-panel";
 import { RoadmapHeader } from "./roadmap-header";
 import { RoadmapTab } from "./roadmap-tab";
 import { RoadmapTimeline } from "./roadmap-timeline";
@@ -244,6 +245,8 @@ export function RoadmapView({
 					/>
 				) : effectiveTab === "memory" ? (
 					<SharedMemoryPanel workspaceId={workspaceId} />
+				) : effectiveTab === "kpis" ? (
+					<KpiPanel roadmapItemId={selectedItemId ?? null} workspaceId={workspaceId} />
 				) : (
 					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">
 						<div className="px-8">

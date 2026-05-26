@@ -2,6 +2,9 @@ import { readFile, writeFile } from "node:fs/promises";
 
 import type { RuntimeBoardData, RuntimeRoadmapItemStatus } from "../core/api-contract.js";
 
+import { loadProjectKpisForItem } from "./kpi-roadmap-loader.js";
+import { buildKpiSnapshot } from "./kpi-snapshot.js";
+import { readKpiStateFile } from "./kpi-state-file.js";
 import { getRoadmapFilePath, parseRoadmapMarkdown, serializeRoadmap } from "./roadmap-file.js";
 import type { ValidationReviewOutcome } from "./roadmap-state-file.js";
 import {
@@ -314,7 +317,21 @@ export async function maybeUpdateRoadmapStatus(
 		if (!accepted) return false;
 	}
 
-	// All tasks accepted — update ROADMAP.md
+	// All KPIs on the item (if any) must be met or waived. Items without
+	// KPIs fall through to the legacy "all tasks accepted" rule unchanged
+	// — see .plan/docs/kpi-tracking-design.md §"Sub-KPI -> KPI rollup".
+	const { values: kpiDefinitions } = await loadProjectKpisForItem(workspacePath, roadmapItemId);
+	if (kpiDefinitions.length > 0) {
+		const kpiState = await readKpiStateFile(workspacePath);
+		const snapshot = buildKpiSnapshot({
+			itemId: roadmapItemId,
+			definitions: kpiDefinitions,
+			state: kpiState,
+		});
+		if (!snapshot.allMet) return false;
+	}
+
+	// All tasks accepted and (when present) all KPIs cleared — update ROADMAP.md
 	const filePath = getRoadmapFilePath(workspacePath);
 	let content: string;
 	try {

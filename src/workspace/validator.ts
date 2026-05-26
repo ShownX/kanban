@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 
 import { parseDeliverableMd, readDeliverableMd } from "./deliverable-file.js";
+import { checkKpiCoverage } from "./kpi-coverage-check.js";
+import { loadProjectKpisForItem, loadSubKpisForTask } from "./kpi-roadmap-loader.js";
 import { readChangelog } from "./shared-memory.js";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +19,7 @@ export const validationCheckNameSchema = z.enum([
 	"spec_staleness",
 	"changelog_consistency",
 	"experiment_logs",
+	"kpi_coverage",
 ]);
 export type ValidationCheckName = z.infer<typeof validationCheckNameSchema>;
 
@@ -540,6 +543,36 @@ function computeSummary(checks: ValidationCheckResult[], overallResult: Validati
 // Main validation function
 // ---------------------------------------------------------------------------
 
+/**
+ * Adapter for `kpi_coverage`: load roadmap item KPIs + flatten sub-KPIs
+ * across every linked task, then run the storage-agnostic check helper.
+ *
+ * Skip rules:
+ *   - Item with no roadmapItemId          → vacuous pass.
+ *   - Roadmap KPI markdown file missing   → vacuous pass (item has no KPIs).
+ */
+async function runKpiCoverageCheck(args: {
+	workspacePath: string;
+	roadmapItemId: string;
+	linkedTaskIds: readonly string[];
+}): Promise<ValidationCheckResult> {
+	if (!args.roadmapItemId) {
+		return {
+			check: "kpi_coverage",
+			status: "pass",
+			details: "Task has no roadmap item; nothing to verify.",
+		};
+	}
+	const { values: itemKpis } = await loadProjectKpisForItem(args.workspacePath, args.roadmapItemId);
+	const linkedSubKpis = (
+		await Promise.all(
+			args.linkedTaskIds.map(async (taskId) => (await loadSubKpisForTask(args.workspacePath, taskId)).values),
+		)
+	).flat();
+	const result = checkKpiCoverage({ itemKpis, linkedSubKpis });
+	return { check: "kpi_coverage", status: result.status, details: result.details };
+}
+
 export interface ValidateDeliverableOptions {
 	workspacePath: string;
 	taskId: string;
@@ -547,10 +580,18 @@ export interface ValidateDeliverableOptions {
 	roadmapItemId: string;
 	ownedPaths: string[];
 	specVersion?: number;
+	/**
+	 * All task ids linked to the roadmap item. Used by `kpi_coverage`
+	 * to gather sub-KPIs across the whole item, not just the task being
+	 * validated. Defaults to `[taskId]` when omitted, which only covers
+	 * the current task's sub-KPIs.
+	 */
+	linkedTaskIds?: string[];
 }
 
 export async function validateDeliverable(options: ValidateDeliverableOptions): Promise<ValidationReport> {
 	const { workspacePath, taskId, specSlug, roadmapItemId, ownedPaths, specVersion } = options;
+	const linkedTaskIds = options.linkedTaskIds ?? [taskId];
 
 	// Run all checks in parallel
 	const [
@@ -560,6 +601,7 @@ export async function validateDeliverable(options: ValidateDeliverableOptions): 
 		specStaleness,
 		changelogConsistency,
 		experimentLogs,
+		kpiCoverage,
 	] = await Promise.all([
 		checkRequirementsCoverage({ workspacePath, specSlug, taskId }),
 		checkScopeCompliance({ workspacePath, taskId, ownedPaths }),
@@ -567,6 +609,7 @@ export async function validateDeliverable(options: ValidateDeliverableOptions): 
 		checkSpecStaleness({ workspacePath, taskId, specVersion }),
 		checkChangelogConsistency({ workspacePath, taskId, specSlug }),
 		checkExperimentLogs({ workspacePath, taskId }),
+		runKpiCoverageCheck({ workspacePath, roadmapItemId, linkedTaskIds }),
 	]);
 
 	const checks: ValidationCheckResult[] = [
@@ -576,6 +619,7 @@ export async function validateDeliverable(options: ValidateDeliverableOptions): 
 		specStaleness,
 		changelogConsistency,
 		experimentLogs,
+		kpiCoverage,
 	];
 
 	const result = computeOverallResult(checks);
@@ -674,6 +718,8 @@ function formatCheckHeading(checkName: ValidationCheckName): string {
 			return "Changelog Consistency";
 		case "experiment_logs":
 			return "Experiment Logs";
+		case "kpi_coverage":
+			return "KPI Coverage";
 	}
 }
 
@@ -1000,6 +1046,8 @@ function parseCheckHeading(heading: string): ValidationCheckName | null {
 			return "changelog_consistency";
 		case "Experiment Logs":
 			return "experiment_logs";
+		case "KPI Coverage":
+			return "kpi_coverage";
 		default:
 			return null;
 	}

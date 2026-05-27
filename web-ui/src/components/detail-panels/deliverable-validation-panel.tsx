@@ -33,6 +33,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { SubKpiSection } from "./sub-kpi-section";
 
 // ---------------------------------------------------------------------------
 // Types derived from the tRPC router
@@ -1306,6 +1307,7 @@ export function DeliverableValidationPanel({
 					isValidating={isValidating}
 				/>
 			) : null}
+			<SubKpiSection taskId={taskId} workspaceId={workspaceId} refreshToken={refreshToken} />
 			{hasReport ? (
 				<ValidationReportSection
 					report={report}

@@ -67,6 +67,7 @@ import {
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
 import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useKpiRollups } from "@/runtime/use-kpi-rollups";
 import { useLatestValidations } from "@/runtime/use-latest-validations";
 import { usePendingValidations } from "@/runtime/use-pending-validations";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
@@ -298,6 +299,23 @@ export default function App(): ReactElement {
 	});
 
 	const validationByTaskId = usePendingValidations(currentProjectId, latestTaskReadyForReview?.triggeredAt ?? null);
+	// Pull KPI rollups for any roadmap item referenced by a review/trash card
+	// so we can render M/N KPIs pills alongside the validation badges.
+	const reviewTrashRoadmapItemIds = useMemo(() => {
+		const ids: string[] = [];
+		for (const column of board.columns) {
+			if (column.id !== "review" && column.id !== "trash") continue;
+			for (const card of column.cards) {
+				if (card.roadmapItemId) ids.push(card.roadmapItemId);
+			}
+		}
+		return ids;
+	}, [board.columns]);
+	const kpiSummaryByItemId = useKpiRollups(
+		currentProjectId,
+		reviewTrashRoadmapItemIds,
+		latestTaskReadyForReview?.triggeredAt ?? null,
+	);
 	const latestValidationByTaskId = useLatestValidations(
 		currentProjectId,
 		latestTaskReadyForReview?.triggeredAt ?? null,
@@ -1083,6 +1101,7 @@ export default function App(): ReactElement {
 												highlightCardId={highlightCardId}
 												validationByTaskId={validationByTaskId}
 												latestValidationByTaskId={latestValidationByTaskId}
+												kpiSummaryByItemId={kpiSummaryByItemId}
 											/>
 										)}
 									</div>

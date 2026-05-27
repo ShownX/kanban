@@ -45,6 +45,7 @@ export function BoardColumn({
 	highlightCardId,
 	validationByTaskId,
 	latestValidationByTaskId,
+	kpiSummaryByItemId,
 }: {
 	column: BoardColumnModel;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
@@ -88,6 +89,7 @@ export function BoardColumn({
 			reviewOutcome?: "accepted" | "rejected" | "escalated";
 		}
 	>;
+	kpiSummaryByItemId?: Record<string, { met: number; total: number; blockingIds: string[] }>;
 }): React.ReactElement {
 	const canCreate = column.id === "backlog" && onCreateTask;
 	const canStartAllTasks = column.id === "backlog" && onStartAllTasks;
@@ -252,6 +254,7 @@ export function BoardColumn({
 											highlighted={highlightCardId === card.id}
 											validation={validationByTaskId?.[card.id]}
 											reviewOutcome={latestValidationByTaskId?.[card.id]?.reviewOutcome}
+											kpiSummary={card.roadmapItemId ? kpiSummaryByItemId?.[card.roadmapItemId] : undefined}
 											onSaveTitle={onSaveTitle}
 											onClick={() => {
 												if (column.id === "backlog") {

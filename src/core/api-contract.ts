@@ -1568,6 +1568,46 @@ export const runtimeKpiSnapshotRequestSchema = z.object({
 });
 export type RuntimeKpiSnapshotRequest = z.infer<typeof runtimeKpiSnapshotRequestSchema>;
 
+export const runtimeTaskSubKpiSchema = z.object({
+	id: z.string(),
+	parentKpiId: z.string().optional(),
+	label: z.string(),
+	description: z.string().optional(),
+	target: runtimeKpiTargetSchema,
+	readings: z.array(runtimeKpiReadingSchema),
+});
+export type RuntimeTaskSubKpi = z.infer<typeof runtimeTaskSubKpiSchema>;
+
+export const runtimeTaskSubKpisRequestSchema = z.object({
+	taskId: z.string(),
+});
+export type RuntimeTaskSubKpisRequest = z.infer<typeof runtimeTaskSubKpisRequestSchema>;
+
+export const runtimeTaskSubKpisResponseSchema = z.object({
+	taskId: z.string(),
+	subKpis: z.array(runtimeTaskSubKpiSchema),
+	warnings: z.array(z.string()),
+});
+export type RuntimeTaskSubKpisResponse = z.infer<typeof runtimeTaskSubKpisResponseSchema>;
+
+export const runtimeKpiRollupRequestSchema = z.object({
+	roadmapItemIds: z.array(z.string()),
+});
+export type RuntimeKpiRollupRequest = z.infer<typeof runtimeKpiRollupRequestSchema>;
+
+export const runtimeKpiRollupEntrySchema = z.object({
+	roadmapItemId: z.string(),
+	met: z.number(),
+	total: z.number(),
+	blockingIds: z.array(z.string()),
+});
+export type RuntimeKpiRollupEntry = z.infer<typeof runtimeKpiRollupEntrySchema>;
+
+export const runtimeKpiRollupResponseSchema = z.object({
+	rollups: z.array(runtimeKpiRollupEntrySchema),
+});
+export type RuntimeKpiRollupResponse = z.infer<typeof runtimeKpiRollupResponseSchema>;
+
 export const runtimeKpiRecordReadingRequestSchema = z.object({
 	roadmapItemId: z.string(),
 	kpiId: z.string(),

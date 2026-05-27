@@ -148,6 +148,8 @@ import {
 	runtimeKpiOverrideRequestSchema,
 	runtimeKpiRecordReadingRequestSchema,
 	runtimeKpiRecordSubReadingRequestSchema,
+	runtimeKpiRollupRequestSchema,
+	runtimeKpiRollupResponseSchema,
 	runtimeKpiSnapshotRequestSchema,
 	runtimeKpiSnapshotSchema,
 	runtimeOpenFileRequestSchema,
@@ -184,6 +186,8 @@ import {
 	runtimeTaskSessionStartResponseSchema,
 	runtimeTaskSessionStopRequestSchema,
 	runtimeTaskSessionStopResponseSchema,
+	runtimeTaskSubKpisRequestSchema,
+	runtimeTaskSubKpisResponseSchema,
 	runtimeTaskWorkspaceInfoRequestSchema,
 	runtimeTaskWorkspaceInfoResponseSchema,
 	runtimeUpdateStatusResponseSchema,
@@ -201,7 +205,7 @@ import {
 	validationReviewOutcomeIoSchema,
 } from "../core/api-contract";
 import { experimentLogEntrySchema } from "../workspace/experiment-log-file.js";
-import { loadProjectKpisForItem } from "../workspace/kpi-roadmap-loader.js";
+import { loadProjectKpisForItem, loadSubKpisForTask } from "../workspace/kpi-roadmap-loader.js";
 import { buildKpiSnapshot } from "../workspace/kpi-snapshot.js";
 import {
 	appendKpiReading,
@@ -1113,6 +1117,46 @@ export const runtimeAppRouter = t.router({
 				const state = await readKpiStateFile(workspaceRoot);
 				const snapshot = buildKpiSnapshot({ itemId: input.roadmapItemId, definitions, state });
 				return { ...snapshot, warnings };
+			}),
+		getTaskSubKpis: workspaceProcedure
+			.input(runtimeTaskSubKpisRequestSchema)
+			.output(runtimeTaskSubKpisResponseSchema)
+			.query(async ({ ctx, input }) => {
+				const workspaceRoot = ctx.workspaceScope.workspacePath;
+				const { values: defs, warnings } = await loadSubKpisForTask(workspaceRoot, input.taskId);
+				const state = await readKpiStateFile(workspaceRoot);
+				const taskState = state.tasks[input.taskId];
+				const subKpis = defs.map((def) => ({
+					...def,
+					readings: taskState?.subKpis[def.id]?.readings ?? [],
+				}));
+				return { taskId: input.taskId, subKpis, warnings };
+			}),
+		getKpiRollups: workspaceProcedure
+			.input(runtimeKpiRollupRequestSchema)
+			.output(runtimeKpiRollupResponseSchema)
+			.query(async ({ ctx, input }) => {
+				const workspaceRoot = ctx.workspaceScope.workspacePath;
+				const state = await readKpiStateFile(workspaceRoot);
+				const rollups = await Promise.all(
+					input.roadmapItemIds.map(async (roadmapItemId) => {
+						const { values: definitions } = await loadProjectKpisForItem(workspaceRoot, roadmapItemId);
+						if (definitions.length === 0) {
+							return { roadmapItemId, met: 0, total: 0, blockingIds: [] };
+						}
+						const snapshot = buildKpiSnapshot({ itemId: roadmapItemId, definitions, state });
+						const met = snapshot.kpis.filter(
+							(e) => e.evaluation.status === "met" || e.evaluation.status === "waived",
+						).length;
+						return {
+							roadmapItemId,
+							met,
+							total: snapshot.kpis.length,
+							blockingIds: snapshot.blockingKpis,
+						};
+					}),
+				);
+				return { rollups };
 			}),
 		recordKpiReading: workspaceProcedure
 			.input(runtimeKpiRecordReadingRequestSchema)

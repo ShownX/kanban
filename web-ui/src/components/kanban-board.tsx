@@ -60,6 +60,7 @@ export function KanbanBoard({
 	showDependencyArrows = false,
 	validationByTaskId,
 	latestValidationByTaskId,
+	kpiSummaryByItemId,
 }: {
 	data: BoardData;
 	taskSessions: Record<string, RuntimeTaskSessionSummary>;
@@ -106,6 +107,8 @@ export function KanbanBoard({
 			reviewOutcome?: "accepted" | "rejected" | "escalated";
 		}
 	>;
+	/** Map of roadmapItemId -> KPI rollup, used to render M/N KPIs pills. */
+	kpiSummaryByItemId?: Record<string, { met: number; total: number; blockingIds: string[] }>;
 }): React.ReactElement {
 	const dragOccurredRef = useRef(false);
 	const boardRef = useRef<HTMLElement>(null);
@@ -453,6 +456,7 @@ export function KanbanBoard({
 						highlightCardId={highlightCardId}
 						validationByTaskId={column.id === "review" ? validationByTaskId : undefined}
 						latestValidationByTaskId={column.id === "trash" ? latestValidationByTaskId : undefined}
+						kpiSummaryByItemId={column.id === "review" || column.id === "trash" ? kpiSummaryByItemId : undefined}
 						onCardClick={(card) => {
 							if (!dragOccurredRef.current) {
 								onCardSelect(card.id);

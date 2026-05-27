@@ -247,6 +247,25 @@ const VALIDATION_BADGE_CONFIG: Record<
 	},
 };
 
+function KpiBadge({ summary }: { summary: { met: number; total: number; blockingIds: string[] } }): React.ReactElement {
+	const allMet = summary.blockingIds.length === 0;
+	const tooltip = allMet
+		? `All ${summary.total} KPI${summary.total === 1 ? "" : "s"} met`
+		: `${summary.blockingIds.length} KPI${summary.blockingIds.length === 1 ? "" : "s"} not yet met: ${summary.blockingIds.join(", ")}`;
+	return (
+		<Tooltip content={tooltip}>
+			<span
+				className={cn(
+					"inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+					allMet ? "bg-status-green/15 text-status-green" : "bg-status-orange/15 text-status-orange",
+				)}
+			>
+				{summary.met}/{summary.total} KPIs
+			</span>
+		</Tooltip>
+	);
+}
+
 function ValidationBadge({ result }: { result: "pass" | "fail" | "needs_review" }): React.ReactElement {
 	const config = VALIDATION_BADGE_CONFIG[result];
 	const Icon = config.icon;
@@ -337,6 +356,7 @@ export function BoardCard({
 	highlighted = false,
 	validation,
 	reviewOutcome,
+	kpiSummary,
 }: {
 	card: BoardCardModel;
 	index: number;
@@ -372,6 +392,8 @@ export function BoardCard({
 	validation?: { reportResult: "pass" | "fail" | "needs_review"; reviewed?: boolean };
 	/** Latest review outcome for the task; rendered as an Accepted/Rejected chip on done cards. */
 	reviewOutcome?: "accepted" | "rejected" | "escalated";
+	/** KPI rollup for this task's roadmap item, used to render an M/N KPIs pill. */
+	kpiSummary?: { met: number; total: number; blockingIds: string[] };
 }): React.ReactElement {
 	const [isHovered, setIsHovered] = useState(false);
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -680,6 +702,9 @@ export function BoardCard({
 								{statusMarker ? <div className="inline-flex items-center">{statusMarker}</div> : null}
 								{validation && columnId === "review" ? (
 									<ValidationBadge result={validation.reportResult} />
+								) : null}
+								{kpiSummary && kpiSummary.total > 0 && (columnId === "review" || columnId === "trash") ? (
+									<KpiBadge summary={kpiSummary} />
 								) : null}
 								{reviewOutcome && columnId === "trash" ? <ReviewOutcomeBadge outcome={reviewOutcome} /> : null}
 								<div className="flex-1 min-w-0">

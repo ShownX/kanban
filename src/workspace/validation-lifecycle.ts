@@ -2,9 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 
 import type { RuntimeBoardData, RuntimeRoadmapItemStatus } from "../core/api-contract.js";
 
-import { loadProjectKpisForItem } from "./kpi-roadmap-loader.js";
+import { loadProjectKpisForItem, loadSubKpisForTask } from "./kpi-roadmap-loader.js";
+import { rollUpSubKpiReadings } from "./kpi-rollup.js";
 import { buildKpiSnapshot } from "./kpi-snapshot.js";
-import { readKpiStateFile } from "./kpi-state-file.js";
+import { appendKpiReading, readKpiStateFile } from "./kpi-state-file.js";
+import type { TaskSubKpi } from "./project-kpi.js";
 import { getRoadmapFilePath, parseRoadmapMarkdown, serializeRoadmap } from "./roadmap-file.js";
 import type { ValidationReviewOutcome } from "./roadmap-state-file.js";
 import {
@@ -123,6 +125,45 @@ export async function reviewValidation(
 			reviewedAt,
 			...(trimmedNote ? { note: trimmedNote } : {}),
 		});
+	}
+
+	// On accept, fold the task's sub-KPI readings into the parent KPIs so
+	// `acceptance: auto-from-task` policies actually fire. See
+	// .plan/docs/kpi-tracking-design.md §"Sub-KPI -> KPI rollup".
+	if (outcome === "accepted") {
+		await rollUpSubKpisOnAccept(workspacePath, roadmapItemId, taskId);
+	}
+}
+
+async function rollUpSubKpisOnAccept(workspacePath: string, roadmapItemId: string, taskId: string): Promise<void> {
+	const { values: parentKpis } = await loadProjectKpisForItem(workspacePath, roadmapItemId);
+	if (parentKpis.length === 0) return;
+	const { values: subKpiDefs } = await loadSubKpisForTask(workspacePath, taskId);
+	if (subKpiDefs.length === 0) return;
+
+	// Sub-KPI readings live in kpi-state.json, not the markdown. Hydrate
+	// each definition with its readings before passing to the rollup helper.
+	const kpiState = await readKpiStateFile(workspacePath);
+	const taskState = kpiState.tasks[taskId];
+	const hydratedSubKpis: TaskSubKpi[] = subKpiDefs.map((def) => ({
+		...def,
+		readings: taskState?.subKpis[def.id]?.readings ?? [],
+	}));
+
+	const { appendedReadings } = rollUpSubKpiReadings({
+		parentKpis,
+		taskSubKpis: hydratedSubKpis,
+		taskId,
+	});
+
+	for (const [parentKpiId, readings] of appendedReadings) {
+		for (const reading of readings) {
+			await appendKpiReading(workspacePath, {
+				itemId: roadmapItemId,
+				kpiId: parentKpiId,
+				reading,
+			});
+		}
 	}
 }
 

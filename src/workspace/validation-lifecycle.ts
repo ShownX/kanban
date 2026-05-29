@@ -1,11 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 import type { RuntimeBoardData, RuntimeRoadmapItemStatus } from "../core/api-contract.js";
-
+import { recordKpiReading } from "./kpi-event-recorder.js";
 import { loadProjectKpisForItem, loadSubKpisForTask } from "./kpi-roadmap-loader.js";
 import { rollUpSubKpiReadings } from "./kpi-rollup.js";
 import { buildKpiSnapshot } from "./kpi-snapshot.js";
-import { appendKpiReading, readKpiStateFile } from "./kpi-state-file.js";
+import { readKpiStateFile } from "./kpi-state-file.js";
 import type { TaskSubKpi } from "./project-kpi.js";
 import { getRoadmapFilePath, parseRoadmapMarkdown, serializeRoadmap } from "./roadmap-file.js";
 import type { ValidationReviewOutcome } from "./roadmap-state-file.js";
@@ -158,7 +158,8 @@ async function rollUpSubKpisOnAccept(workspacePath: string, roadmapItemId: strin
 
 	for (const [parentKpiId, readings] of appendedReadings) {
 		for (const reading of readings) {
-			await appendKpiReading(workspacePath, {
+			await recordKpiReading({
+				workspaceRoot: workspacePath,
 				itemId: roadmapItemId,
 				kpiId: parentKpiId,
 				reading,

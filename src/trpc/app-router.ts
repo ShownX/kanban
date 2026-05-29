@@ -205,15 +205,15 @@ import {
 	validationReviewOutcomeIoSchema,
 } from "../core/api-contract";
 import { experimentLogEntrySchema } from "../workspace/experiment-log-file.js";
+import {
+	recordKpiOverrideCleared,
+	recordKpiOverrideSet,
+	recordKpiReading,
+	recordSubKpiReading,
+} from "../workspace/kpi-event-recorder.js";
 import { loadProjectKpisForItem, loadSubKpisForTask } from "../workspace/kpi-roadmap-loader.js";
 import { buildKpiSnapshot } from "../workspace/kpi-snapshot.js";
-import {
-	appendKpiReading,
-	appendSubKpiReading,
-	clearKpiOverride,
-	readKpiStateFile,
-	setKpiOverride,
-} from "../workspace/kpi-state-file.js";
+import { readKpiStateFile } from "../workspace/kpi-state-file.js";
 import {
 	changelogEntryInputSchema as sharedMemoryChangelogEntryInputSchema,
 	changelogEntrySchema as sharedMemoryChangelogEntrySchema,
@@ -1162,7 +1162,8 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeKpiRecordReadingRequestSchema)
 			.output(runtimeKpiOkResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				await appendKpiReading(ctx.workspaceScope.workspacePath, {
+				await recordKpiReading({
+					workspaceRoot: ctx.workspaceScope.workspacePath,
 					itemId: input.roadmapItemId,
 					kpiId: input.kpiId,
 					reading: input.reading,
@@ -1173,7 +1174,8 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeKpiRecordSubReadingRequestSchema)
 			.output(runtimeKpiOkResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				await appendSubKpiReading(ctx.workspaceScope.workspacePath, {
+				await recordSubKpiReading({
+					workspaceRoot: ctx.workspaceScope.workspacePath,
 					taskId: input.taskId,
 					subKpiId: input.subKpiId,
 					reading: input.reading,
@@ -1184,7 +1186,8 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeKpiOverrideRequestSchema)
 			.output(runtimeKpiOkResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				await setKpiOverride(ctx.workspaceScope.workspacePath, {
+				await recordKpiOverrideSet({
+					workspaceRoot: ctx.workspaceScope.workspacePath,
 					itemId: input.roadmapItemId,
 					kpiId: input.kpiId,
 					override: input.override,
@@ -1195,7 +1198,8 @@ export const runtimeAppRouter = t.router({
 			.input(runtimeKpiClearOverrideRequestSchema)
 			.output(runtimeKpiOkResponseSchema)
 			.mutation(async ({ ctx, input }) => {
-				await clearKpiOverride(ctx.workspaceScope.workspacePath, {
+				await recordKpiOverrideCleared({
+					workspaceRoot: ctx.workspaceScope.workspacePath,
 					itemId: input.roadmapItemId,
 					kpiId: input.kpiId,
 				});

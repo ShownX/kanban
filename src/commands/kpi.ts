@@ -29,10 +29,15 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Command } from "commander";
-
+import { readKpiEvents, verifyKpiEventChain } from "../workspace/kpi-event-log.js";
+import {
+	recordKpiOverrideCleared,
+	recordKpiOverrideSet,
+	recordKpiReading as recordProjectKpiReading,
+} from "../workspace/kpi-event-recorder.js";
 import { parseKpiMarkdownSection } from "../workspace/kpi-markdown.js";
 import { buildKpiSnapshot, formatSnapshotAsText, type KpiSnapshot } from "../workspace/kpi-snapshot.js";
-import { appendKpiReading, clearKpiOverride, readKpiStateFile, setKpiOverride } from "../workspace/kpi-state-file.js";
+import { readKpiStateFile } from "../workspace/kpi-state-file.js";
 import type { KpiReading, KpiStatus, ProjectKpi } from "../workspace/project-kpi.js";
 
 const ROADMAP_GLOB_DIR = ".kanban/roadmap";
@@ -207,7 +212,8 @@ export async function runKpiRecord(options: RecordOptions): Promise<void> {
 		taskId: options.taskId,
 		note: options.note,
 	};
-	await appendKpiReading(workspaceRoot, {
+	await recordProjectKpiReading({
+		workspaceRoot,
 		itemId: item.itemId,
 		kpiId: definition.id,
 		reading,
@@ -220,14 +226,15 @@ export async function runKpiOverride(options: OverrideOptions): Promise<void> {
 	const item = await findItem(workspaceRoot, options.item);
 	const definition = findDefinition(item, options.kpi);
 	if (options.clear) {
-		await clearKpiOverride(workspaceRoot, { itemId: item.itemId, kpiId: definition.id });
+		await recordKpiOverrideCleared({ workspaceRoot, itemId: item.itemId, kpiId: definition.id });
 		process.stdout.write(`Cleared override on ${item.itemId} / ${definition.id}.\n`);
 		return;
 	}
 	if (!options.reason || !options.reviewer) {
 		throw new Error("`kanban kpi override` requires --reason and --reviewer (unless --clear is set).");
 	}
-	await setKpiOverride(workspaceRoot, {
+	await recordKpiOverrideSet({
+		workspaceRoot,
 		itemId: item.itemId,
 		kpiId: definition.id,
 		override: {
@@ -238,6 +245,62 @@ export async function runKpiOverride(options: OverrideOptions): Promise<void> {
 		},
 	});
 	process.stdout.write(`Set override (${options.status}) on ${item.itemId} / ${definition.id}.\n`);
+}
+
+interface EventsListOptions {
+	item?: string;
+	taskId?: string;
+	since?: string;
+	format?: "json" | "text";
+	workspace?: string;
+}
+
+interface EventsVerifyOptions {
+	workspace?: string;
+}
+
+export async function runKpiEventsList(options: EventsListOptions): Promise<void> {
+	const workspaceRoot = resolve(options.workspace ?? process.cwd());
+	const format = options.format ?? "text";
+	const events = await readKpiEvents(workspaceRoot);
+	const filtered = events.filter((event) => {
+		if (options.since && event.ts < options.since) return false;
+		if (options.item) {
+			if (event.scope.kind !== "project" || event.scope.itemId !== options.item) return false;
+		}
+		if (options.taskId) {
+			if (event.scope.kind !== "task" || event.scope.taskId !== options.taskId) return false;
+		}
+		return true;
+	});
+	if (format === "json") {
+		process.stdout.write(`${JSON.stringify(filtered, null, 2)}\n`);
+		return;
+	}
+	if (filtered.length === 0) {
+		process.stdout.write("No KPI events.\n");
+		return;
+	}
+	for (const event of filtered) {
+		const scope =
+			event.scope.kind === "project"
+				? `${event.scope.itemId}/${event.scope.kpiId}`
+				: `task:${event.scope.taskId}/${event.scope.subKpiId}`;
+		const transition =
+			event.statusFrom !== undefined && event.statusTo !== undefined ? ` ${event.statusFrom}→${event.statusTo}` : "";
+		process.stdout.write(`#${event.seq} ${event.ts} ${event.type} ${scope}${transition}\n`);
+	}
+}
+
+export async function runKpiEventsVerify(options: EventsVerifyOptions): Promise<void> {
+	const workspaceRoot = resolve(options.workspace ?? process.cwd());
+	const result = await verifyKpiEventChain(workspaceRoot);
+	if (result.ok) {
+		process.stdout.write(`Chain intact: ${result.count} event(s).\n`);
+		return;
+	}
+	process.stdout.write(`Chain broken at index ${result.index} (line ${result.index + 1}): ${result.reason}\n`);
+	process.exitCode = 4;
 }
 
 export function registerKpiCommand(program: Command): void {
@@ -276,5 +339,27 @@ export function registerKpiCommand(program: Command): void {
 		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
 		.action(async (options: OverrideOptions) => {
 			await runKpiOverride(options);
+		});
+
+	const events = kpi.command("events").description("Inspect the KPI event log (Phase C hash-chained log).");
+
+	events
+		.command("list")
+		.description("List KPI events, newest-first by default.")
+		.option("--item <id>", "Restrict to a single roadmap item.")
+		.option("--task-id <id>", "Restrict to a single task's sub-KPI events.")
+		.option("--since <iso>", "Only events whose ts >= this ISO-8601 string.")
+		.option("--format <fmt>", "Output format: json | text.", parseFormat, "text")
+		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
+		.action(async (options: EventsListOptions) => {
+			await runKpiEventsList(options);
+		});
+
+	events
+		.command("verify")
+		.description("Walk the KPI event chain and report any breaks. Exits non-zero on corruption.")
+		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
+		.action(async (options: EventsVerifyOptions) => {
+			await runKpiEventsVerify(options);
 		});
 }

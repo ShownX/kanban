@@ -29,7 +29,13 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Command } from "commander";
-import { readKpiEvents, verifyKpiEventChain } from "../workspace/kpi-event-log.js";
+import { compactKpiEvents, DEFAULT_RETAIN_DAYS } from "../workspace/kpi-event-compaction.js";
+import {
+	compactKpiEventLog,
+	getKpiEventLogSize,
+	readKpiEvents,
+	verifyKpiEventChain,
+} from "../workspace/kpi-event-log.js";
 import {
 	recordKpiOverrideCleared,
 	recordKpiOverrideSet,
@@ -282,10 +288,18 @@ export async function runKpiEventsList(options: EventsListOptions): Promise<void
 		return;
 	}
 	for (const event of filtered) {
-		const scope =
-			event.scope.kind === "project"
-				? `${event.scope.itemId}/${event.scope.kpiId}`
-				: `task:${event.scope.taskId}/${event.scope.subKpiId}`;
+		let scope: string;
+		switch (event.scope.kind) {
+			case "project":
+				scope = `${event.scope.itemId}/${event.scope.kpiId}`;
+				break;
+			case "task":
+				scope = `task:${event.scope.taskId}/${event.scope.subKpiId}`;
+				break;
+			case "log":
+				scope = "log";
+				break;
+		}
 		const transition =
 			event.statusFrom !== undefined && event.statusTo !== undefined ? ` ${event.statusFrom}→${event.statusTo}` : "";
 		process.stdout.write(`#${event.seq} ${event.ts} ${event.type} ${scope}${transition}\n`);
@@ -301,6 +315,55 @@ export async function runKpiEventsVerify(options: EventsVerifyOptions): Promise<
 	}
 	process.stdout.write(`Chain broken at index ${result.index} (line ${result.index + 1}): ${result.reason}\n`);
 	process.exitCode = 4;
+}
+
+interface EventsCompactOptions {
+	dryRun?: boolean;
+	force?: boolean;
+	retainDays?: number;
+	workspace?: string;
+}
+
+const COMPACT_THRESHOLD_BYTES = 4 * 1024 * 1024;
+
+export async function runKpiEventsCompact(options: EventsCompactOptions): Promise<void> {
+	const workspaceRoot = resolve(options.workspace ?? process.cwd());
+	const retainDays = options.retainDays ?? DEFAULT_RETAIN_DAYS;
+	const sizeInfo = await getKpiEventLogSize(workspaceRoot);
+	if (!sizeInfo.exists) {
+		process.stdout.write("No KPI event log; nothing to compact.\n");
+		return;
+	}
+	if (!options.force && sizeInfo.bytes < COMPACT_THRESHOLD_BYTES) {
+		process.stdout.write(
+			`Event log is ${formatBytes(sizeInfo.bytes)} (below the ${formatBytes(COMPACT_THRESHOLD_BYTES)} threshold). Use --force to compact anyway.\n`,
+		);
+		return;
+	}
+	if (options.dryRun) {
+		const events = await readKpiEvents(workspaceRoot);
+		const result = compactKpiEvents(events, { retainDays });
+		if (!result.removed) {
+			process.stdout.write("Dry-run: nothing to remove.\n");
+			return;
+		}
+		process.stdout.write(
+			`Dry-run: would remove ${result.removed.count} event(s) (seq ${result.removed.start}-${result.removed.end}); kept ${result.events.length} after rebuild.\n`,
+		);
+		return;
+	}
+	const result = await compactKpiEventLog(workspaceRoot, { retainDays });
+	if (!result) {
+		process.stdout.write("Nothing to compact.\n");
+		return;
+	}
+	process.stdout.write(`Compacted: removed ${result.removed} event(s); ${result.total} remain.\n`);
+}
+
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes}B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+	return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
 export function registerKpiCommand(program: Command): void {
@@ -361,5 +424,16 @@ export function registerKpiCommand(program: Command): void {
 		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
 		.action(async (options: EventsVerifyOptions) => {
 			await runKpiEventsVerify(options);
+		});
+
+	events
+		.command("compact")
+		.description("Compact the KPI event log (Phase D3). Drops events older than --retain-days.")
+		.option("--dry-run", "Show what would be removed without writing.")
+		.option("--force", "Compact regardless of file size; default skips below 4 MB.")
+		.option("--retain-days <n>", "Days of full history to retain (default 90).", (v) => Number.parseInt(v, 10))
+		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
+		.action(async (options: EventsCompactOptions) => {
+			await runKpiEventsCompact(options);
 		});
 }

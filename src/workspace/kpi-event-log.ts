@@ -12,25 +12,46 @@
  * in the markdown report files (see Phase B's `## KPI Readings`).
  */
 
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
 import { lockedFileSystem } from "../fs/locked-file-system.js";
 import { CHAIN_HASH_GENESIS, chainHash, findChainBreak } from "./hash-chain.js";
+import { compactKpiEvents } from "./kpi-event-compaction.js";
 import { kpiOverrideSchema, kpiReadingSchema, kpiStatusSchema } from "./project-kpi.js";
 
 const KANBAN_DIR = ".kanban";
 const KPI_EVENTS_FILE = "kpi-events.jsonl";
 
-export const kpiEventTypeSchema = z.enum(["reading_appended", "override_set", "override_cleared", "status_changed"]);
+export const kpiEventTypeSchema = z.enum([
+	"reading_appended",
+	"override_set",
+	"override_cleared",
+	"status_changed",
+	"chain_compacted",
+]);
 export type KpiEventType = z.infer<typeof kpiEventTypeSchema>;
 
 export const kpiEventScopeSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("project"), itemId: z.string(), kpiId: z.string() }),
 	z.object({ kind: z.literal("task"), taskId: z.string(), subKpiId: z.string() }),
+	z.object({ kind: z.literal("log") }),
 ]);
 export type KpiEventScope = z.infer<typeof kpiEventScopeSchema>;
+
+/**
+ * Metadata for `chain_compacted` events. The marker records what was
+ * removed so an external auditor with a pre-compaction copy can still
+ * verify the surviving chain links up to a known boundary.
+ */
+export const kpiEventCompactionMetaSchema = z.object({
+	removedSeqStart: z.number().int().positive(),
+	removedSeqEnd: z.number().int().positive(),
+	preCompactionChainHash: z.string(),
+	cutoffTs: z.string(),
+});
+export type KpiEventCompactionMeta = z.infer<typeof kpiEventCompactionMetaSchema>;
 
 export const kpiEventSchema = z.object({
 	seq: z.number().int().positive(),
@@ -41,6 +62,7 @@ export const kpiEventSchema = z.object({
 	override: kpiOverrideSchema.optional(),
 	statusFrom: kpiStatusSchema.optional(),
 	statusTo: kpiStatusSchema.optional(),
+	compaction: kpiEventCompactionMetaSchema.optional(),
 	prevHash: z.string(),
 	chainHash: z.string(),
 });
@@ -143,4 +165,64 @@ export async function appendKpiEvents(workspaceRoot: string, inputs: readonly Kp
 		written = fresh;
 	});
 	return written;
+}
+
+// ---------------------------------------------------------------------------
+// Compaction (Phase D3)
+// ---------------------------------------------------------------------------
+
+export interface KpiEventLogSizeInfo {
+	bytes: number;
+	exists: boolean;
+}
+
+/** Stat the file. Returns 0 bytes when missing. */
+export async function getKpiEventLogSize(workspaceRoot: string): Promise<KpiEventLogSizeInfo> {
+	const path = eventLogPath(workspaceRoot);
+	try {
+		const info = await stat(path);
+		return { bytes: info.size, exists: true };
+	} catch (error) {
+		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+			return { bytes: 0, exists: false };
+		}
+		throw error;
+	}
+}
+
+/**
+ * Atomically replace the event log with the given event list. The
+ * locked-file system handles temp-file + rename so concurrent readers
+ * never see a torn file.
+ */
+export async function rewriteKpiEventLog(workspaceRoot: string, events: readonly KpiEvent[]): Promise<void> {
+	const path = eventLogPath(workspaceRoot);
+	await mkdir(dirname(path), { recursive: true });
+	const body = events.length === 0 ? "" : `${events.map((e) => JSON.stringify(e)).join("\n")}\n`;
+	await lockedFileSystem.writeTextFileAtomic(path, body, { lock: { path, type: "file" } });
+}
+
+/**
+ * Read events, run the pure compaction algorithm, write the result
+ * back. Returns null when nothing was eligible for removal so callers
+ * can no-op.
+ */
+export async function compactKpiEventLog(
+	workspaceRoot: string,
+	config: { retainDays: number; nowMs?: number },
+): Promise<{ removed: number; total: number } | null> {
+	const path = eventLogPath(workspaceRoot);
+	let result: { removed: number; total: number } | null = null;
+	await lockedFileSystem.withLock({ path, type: "file" }, async () => {
+		const existing = await readKpiEvents(workspaceRoot);
+		const compacted = compactKpiEvents(existing, config);
+		if (!compacted.removed) return;
+		await mkdir(dirname(path), { recursive: true });
+		const body = `${compacted.events.map((e) => JSON.stringify(e)).join("\n")}\n`;
+		// Already inside the lock, so use writeTextFileAtomic with lock:null
+		// to avoid the helper trying to re-acquire.
+		await lockedFileSystem.writeTextFileAtomic(path, body, { lock: null });
+		result = { removed: compacted.removed.count, total: compacted.events.length };
+	});
+	return result;
 }

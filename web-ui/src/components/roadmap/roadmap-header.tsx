@@ -57,7 +57,9 @@ export function RoadmapHeader({
 				<Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onClose} />
 				{/* Tabs */}
 				<div className="flex items-center gap-0.5">
-					{(["roadmap", "requirements", "design", "tasks", "kpis", "timeline", "memory"] as const).map((tab) => {
+					{(
+						["roadmap", "requirements", "design", "tasks", "kpis", "timeline", "workspace", "memory"] as const
+					).map((tab) => {
 						if (tab === "timeline" && !specItems.some((item) => item.startDate || item.endDate)) {
 							return null;
 						}

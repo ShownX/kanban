@@ -19,7 +19,7 @@ export const MARK_OPEN = "«"; // «
 export const MARK_CLOSE = "»"; // »
 export const MARK_SEP = "‖"; // ‖
 
-export type TabId = "roadmap" | "requirements" | "design" | "tasks" | "kpis" | "timeline" | "memory";
+export type TabId = "roadmap" | "requirements" | "design" | "tasks" | "kpis" | "timeline" | "workspace" | "memory";
 
 export function createId(): string {
 	return crypto.randomUUID();

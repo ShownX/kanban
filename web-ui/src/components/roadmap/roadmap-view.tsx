@@ -5,6 +5,7 @@ import { useResizeDrag } from "@/resize/use-resize-drag";
 import type { BoardData, RoadmapItem } from "@/types";
 import { CommentCard, SelectionPopover } from "./comment-overlay";
 import { KpiPanel } from "./kpi-panel";
+import { KpiWorkspacePanel } from "./kpi-workspace-panel";
 import { RoadmapHeader } from "./roadmap-header";
 import { RoadmapTab } from "./roadmap-tab";
 import { RoadmapTimeline } from "./roadmap-timeline";
@@ -247,6 +248,14 @@ export function RoadmapView({
 					<SharedMemoryPanel workspaceId={workspaceId} />
 				) : effectiveTab === "kpis" ? (
 					<KpiPanel roadmapItemId={selectedItemId ?? null} workspaceId={workspaceId} />
+				) : effectiveTab === "workspace" ? (
+					<KpiWorkspacePanel
+						workspaceId={workspaceId}
+						onSelectItem={(id) => {
+							setSelectedItemId(id);
+							setActiveTab("kpis");
+						}}
+					/>
 				) : (
 					<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">
 						<div className="px-8">

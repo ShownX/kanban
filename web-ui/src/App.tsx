@@ -67,6 +67,7 @@ import {
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
 import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useKpiRegressions } from "@/runtime/use-kpi-regressions";
 import { useKpiRollups } from "@/runtime/use-kpi-rollups";
 import { useLatestValidations } from "@/runtime/use-latest-validations";
 import { usePendingValidations } from "@/runtime/use-pending-validations";
@@ -314,6 +315,15 @@ export default function App(): ReactElement {
 	const kpiSummaryByItemId = useKpiRollups(
 		currentProjectId,
 		reviewTrashRoadmapItemIds,
+		latestTaskReadyForReview?.triggeredAt ?? null,
+	);
+	// All roadmap items (not just review/trash) so the top-bar regression
+	// chip surfaces met -> missed flips even when the offending item has
+	// no card currently in the review column.
+	const allRoadmapItemIds = useMemo(() => (board.roadmap ?? []).map((item) => item.id), [board.roadmap]);
+	const kpiRegressions = useKpiRegressions(
+		currentProjectId,
+		allRoadmapItemIds,
 		latestTaskReadyForReview?.triggeredAt ?? null,
 	);
 	const latestValidationByTaskId = useLatestValidations(
@@ -994,6 +1004,8 @@ export default function App(): ReactElement {
 						pendingValidationCount={Object.keys(validationByTaskId).length}
 						pendingValidations={pendingValidationsForChip}
 						onSelectPendingValidation={handleCardSelect}
+						kpiRegressions={kpiRegressions}
+						onSelectKpiRegression={handleNavigateToRoadmapItem}
 					/>
 					<div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
 						<div

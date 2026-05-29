@@ -1,22 +1,26 @@
 /**
  * `kpi_coverage` validator check.
  *
- * For each `auto-from-task` KPI on a roadmap item, ensure at least one
- * linked task carries a sub-KPI with the matching `parentKpiId` and a
- * non-empty reading. Catches the gap where validation passes,
+ * For each non-manual KPI on a roadmap item, ensure at least one
+ * matching reading exists. Catches the gap where validation passes,
  * auto-promote flips the item to done, and the goal was never measured.
  *
- * Skip rules:
- *   - `manual` KPIs       — reviewer records out-of-band; absence isn't
- *                           an agent bug.
- *   - `auto-from-validator` KPIs — Phase B defers to Phase C; we surface
- *                           a "deferred" details line by KPI id so the
- *                           reviewer knows it's by design.
+ * Per-policy rules:
+ *   - `manual` KPIs            — skipped; reviewer records out-of-band,
+ *                                absence isn't an agent bug.
+ *   - `auto-from-task` KPIs    — at least one linked task must carry a
+ *                                sub-KPI with matching `parentKpiId`
+ *                                and a non-empty reading.
+ *   - `auto-from-validator` KPIs — at least one validator-source
+ *                                reading must exist on the parent KPI
+ *                                itself. Phase C's experiment-log
+ *                                extractor populates these; before
+ *                                Phase C this policy was deferred.
  *
- * Returns a structured result. The full validator (in
- * `src/workspace/validator.ts` on the roadmap-panel branch) consumes
- * this and folds the result into its `checks` array; this module is
- * deliberately storage-agnostic so it can be tested in isolation.
+ * Returns a structured result. The validator (in
+ * `src/workspace/validator.ts`) consumes this and folds the result
+ * into its `checks` array; this module is deliberately storage-agnostic
+ * so it can be tested in isolation.
  */
 
 import type { ProjectKpi, TaskSubKpi } from "./project-kpi.js";
@@ -29,7 +33,7 @@ export interface KpiCoverageResult {
 	details: string;
 	/** KPI ids that had no contributing reading; surfaces in the UI. */
 	missingKpiIds: string[];
-	/** KPI ids deferred to Phase C; surfaces in a separate hint badge. */
+	/** Deprecated: kept for backwards compatibility, always empty in Phase C+. */
 	deferredKpiIds: string[];
 }
 
@@ -65,12 +69,12 @@ export function checkKpiCoverage(input: KpiCoverageInput): KpiCoverageResult {
 	}
 
 	const missingKpiIds: string[] = [];
-	const deferredKpiIds: string[] = [];
 
 	for (const kpi of input.itemKpis) {
 		if (kpi.acceptance === "manual") continue;
 		if (kpi.acceptance === "auto-from-validator") {
-			deferredKpiIds.push(kpi.id);
+			const hasValidatorReading = kpi.readings.some((r) => r.source === "validator");
+			if (!hasValidatorReading) missingKpiIds.push(kpi.id);
 			continue;
 		}
 		// auto-from-task: at least one matching sub-KPI must carry a non-empty reading.
@@ -81,16 +85,7 @@ export function checkKpiCoverage(input: KpiCoverageInput): KpiCoverageResult {
 		}
 	}
 
-	const detailsLines: string[] = [];
-	if (missingKpiIds.length > 0) {
-		detailsLines.push(`Missing readings for ${missingKpiIds.length} KPI(s): ${missingKpiIds.join(", ")}.`);
-	}
-	if (deferredKpiIds.length > 0) {
-		detailsLines.push(
-			`Deferred to Phase C (${deferredKpiIds.length}): ${deferredKpiIds.join(", ")}; auto-from-validator measurement is not yet wired.`,
-		);
-	}
-	if (detailsLines.length === 0) {
+	if (missingKpiIds.length === 0) {
 		return {
 			check: "kpi_coverage",
 			status: "pass",
@@ -100,12 +95,11 @@ export function checkKpiCoverage(input: KpiCoverageInput): KpiCoverageResult {
 		};
 	}
 
-	const status: KpiCoverageStatus = missingKpiIds.length > 0 ? "needs_review" : "pass";
 	return {
 		check: "kpi_coverage",
-		status,
-		details: detailsLines.join(" "),
+		status: "needs_review",
+		details: `Missing readings for ${missingKpiIds.length} KPI(s): ${missingKpiIds.join(", ")}.`,
 		missingKpiIds,
-		deferredKpiIds,
+		deferredKpiIds: [],
 	};
 }

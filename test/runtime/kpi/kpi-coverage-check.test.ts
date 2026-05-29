@@ -46,7 +46,7 @@ describe("checkKpiCoverage", () => {
 		expect(result.deferredKpiIds).toEqual([]);
 	});
 
-	it("defers auto-from-validator KPIs and surfaces them in details", () => {
+	it("flags auto-from-validator KPIs without a validator-source reading", () => {
 		const result = checkKpiCoverage({
 			itemKpis: [
 				projectKpi({ id: "p99_latency", acceptance: "auto-from-validator" }),
@@ -54,11 +54,40 @@ describe("checkKpiCoverage", () => {
 			],
 			linkedSubKpis: [],
 		});
+		expect(result.status).toBe("needs_review");
+		expect(result.missingKpiIds).toEqual(["p99_latency"]);
+		expect(result.deferredKpiIds).toEqual([]);
+		expect(result.details).toContain("p99_latency");
+	});
+
+	it("passes auto-from-validator KPIs that have a validator-source reading", () => {
+		const result = checkKpiCoverage({
+			itemKpis: [
+				projectKpi({
+					id: "p99_latency",
+					acceptance: "auto-from-validator",
+					readings: [{ recordedAt: recordedAt, source: "validator", numericValue: 178 }],
+				}),
+			],
+			linkedSubKpis: [],
+		});
 		expect(result.status).toBe("pass");
 		expect(result.missingKpiIds).toEqual([]);
-		expect(result.deferredKpiIds).toEqual(["p99_latency"]);
-		expect(result.details).toContain("Deferred to Phase C");
-		expect(result.details).toContain("p99_latency");
+	});
+
+	it("ignores non-validator readings on auto-from-validator KPIs", () => {
+		const result = checkKpiCoverage({
+			itemKpis: [
+				projectKpi({
+					id: "p99_latency",
+					acceptance: "auto-from-validator",
+					readings: [{ recordedAt: recordedAt, source: "manual", numericValue: 178 }],
+				}),
+			],
+			linkedSubKpis: [],
+		});
+		expect(result.status).toBe("needs_review");
+		expect(result.missingKpiIds).toEqual(["p99_latency"]);
 	});
 
 	it("flags an auto-from-task KPI with no contributing sub-KPI as needs_review", () => {
@@ -143,7 +172,7 @@ describe("checkKpiCoverage", () => {
 		expect(result.details).toContain("gamma");
 	});
 
-	it("mixes missing and deferred in details when both present", () => {
+	it("flags both auto-from-task and unmeasured auto-from-validator KPIs together", () => {
 		const result = checkKpiCoverage({
 			itemKpis: [
 				projectKpi({ id: "alpha", acceptance: "auto-from-task" }),
@@ -152,9 +181,9 @@ describe("checkKpiCoverage", () => {
 			linkedSubKpis: [],
 		});
 		expect(result.status).toBe("needs_review");
-		expect(result.missingKpiIds).toEqual(["alpha"]);
-		expect(result.deferredKpiIds).toEqual(["beta"]);
-		expect(result.details).toContain("Missing readings");
-		expect(result.details).toContain("Deferred to Phase C");
+		expect(result.missingKpiIds).toEqual(["alpha", "beta"]);
+		expect(result.deferredKpiIds).toEqual([]);
+		expect(result.details).toContain("alpha");
+		expect(result.details).toContain("beta");
 	});
 });

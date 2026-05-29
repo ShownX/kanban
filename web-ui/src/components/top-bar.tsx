@@ -399,6 +399,69 @@ function PendingValidationsChip({
 	);
 }
 
+function KpiRegressionsChip({
+	items,
+	onSelect,
+}: {
+	items: Array<{ roadmapItemId: string; kpiId: string; ts: string }>;
+	onSelect?: (roadmapItemId: string) => void;
+}): React.ReactElement {
+	const [open, setOpen] = useState(false);
+	const tooltip = `${items.length} KPI regression${items.length === 1 ? "" : "s"} (met → missed)`;
+	return (
+		<RadixPopover.Root open={open} onOpenChange={setOpen}>
+			<Tooltip content={tooltip} side="bottom">
+				<RadixPopover.Trigger asChild>
+					<button
+						type="button"
+						className="mr-1 inline-flex h-7 cursor-pointer items-center gap-1 rounded-full bg-status-red/15 px-2 text-[11px] font-medium text-status-red hover:bg-status-red/25"
+					>
+						<HelpCircle size={12} />
+						{items.length}
+					</button>
+				</RadixPopover.Trigger>
+			</Tooltip>
+			<RadixPopover.Portal>
+				<RadixPopover.Content
+					side="bottom"
+					align="end"
+					sideOffset={6}
+					className="z-50 w-80 max-w-[90vw] rounded-md border border-border bg-surface-1 p-1 shadow-lg"
+					style={{ animation: "kb-tooltip-show 100ms ease" }}
+				>
+					<div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+						KPI regressions
+					</div>
+					<ul className="flex max-h-80 flex-col gap-0.5 overflow-y-auto">
+						{items.map((item) => (
+							<li key={`${item.roadmapItemId}-${item.kpiId}-${item.ts}`}>
+								<button
+									type="button"
+									onClick={() => {
+										if (onSelect) onSelect(item.roadmapItemId);
+										setOpen(false);
+									}}
+									className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface-3"
+								>
+									<span className="shrink-0 rounded-full bg-status-red/15 px-1.5 py-0.5 text-[10px] font-medium text-status-red">
+										met → missed
+									</span>
+									<div className="min-w-0 flex-1">
+										<div className="truncate text-xs font-medium text-text-primary">{item.kpiId}</div>
+										<div className="text-[10px] text-text-tertiary">
+											{item.roadmapItemId} · {formatRelativeTimestamp(item.ts)}
+										</div>
+									</div>
+								</button>
+							</li>
+						))}
+					</ul>
+				</RadixPopover.Content>
+			</RadixPopover.Portal>
+		</RadixPopover.Root>
+	);
+}
+
 export function TopBar({
 	onToggleSidebar,
 	onBack,
@@ -439,6 +502,8 @@ export function TopBar({
 	pendingValidationCount = 0,
 	pendingValidations,
 	onSelectPendingValidation,
+	kpiRegressions,
+	onSelectKpiRegression,
 }: {
 	onToggleSidebar?: () => void;
 	onBack?: () => void;
@@ -487,6 +552,10 @@ export function TopBar({
 	}>;
 	/** Open the card detail view for the given task. */
 	onSelectPendingValidation?: (taskId: string) => void;
+	/** KPI regressions (met -> missed) across all roadmap items. */
+	kpiRegressions?: Array<{ roadmapItemId: string; kpiId: string; ts: string }>;
+	/** Navigate to a roadmap item's KPI panel. */
+	onSelectKpiRegression?: (roadmapItemId: string) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const displayWorkspacePath = workspacePath ? formatPathForDisplay(workspacePath) : null;
@@ -685,6 +754,9 @@ export function TopBar({
 									items={pendingValidations ?? []}
 									onSelect={onSelectPendingValidation}
 								/>
+							) : null}
+							{!hideProjectDependentActions && kpiRegressions && kpiRegressions.length > 0 ? (
+								<KpiRegressionsChip items={kpiRegressions} onSelect={onSelectKpiRegression} />
 							) : null}
 							{onOpenRoadmap && !hideProjectDependentActions ? (
 								<Button

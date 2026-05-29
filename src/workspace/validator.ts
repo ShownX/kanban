@@ -4,8 +4,12 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 
 import { parseDeliverableMd, readDeliverableMd } from "./deliverable-file.js";
+import { readExperimentLogs } from "./experiment-log-file.js";
 import { checkKpiCoverage } from "./kpi-coverage-check.js";
+import { recordKpiReading } from "./kpi-event-recorder.js";
 import { loadProjectKpisForItem, loadSubKpisForTask } from "./kpi-roadmap-loader.js";
+import { readKpiStateFile } from "./kpi-state-file.js";
+import { extractKpiReadings } from "./kpi-validator-extractor.js";
 import { readChangelog } from "./shared-memory.js";
 
 // ---------------------------------------------------------------------------
@@ -472,7 +476,6 @@ const EXPERIMENT_LOG_FAILURE_MARKERS: ReadonlyArray<{ pattern: RegExp; label: st
  */
 async function checkExperimentLogs(input: ExperimentLogsCheckInput): Promise<ValidationCheckResult> {
 	const { workspacePath, taskId } = input;
-	const { readExperimentLogs } = await import("./experiment-log-file.js");
 	const logs = await readExperimentLogs(workspacePath, taskId);
 
 	if (logs.length === 0) {
@@ -551,6 +554,26 @@ function computeSummary(checks: ValidationCheckResult[], overallResult: Validati
  *   - Item with no roadmapItemId          → vacuous pass.
  *   - Roadmap KPI markdown file missing   → vacuous pass (item has no KPIs).
  */
+async function ingestValidatorReadings(args: {
+	workspacePath: string;
+	taskId: string;
+	roadmapItemId: string;
+}): Promise<void> {
+	const { values: parentKpis } = await loadProjectKpisForItem(args.workspacePath, args.roadmapItemId);
+	if (!parentKpis.some((kpi) => kpi.acceptance === "auto-from-validator")) return;
+	const logs = await readExperimentLogs(args.workspacePath, args.taskId);
+	if (logs.length === 0) return;
+	const extracted = extractKpiReadings({ logs, parentKpis });
+	for (const item of extracted) {
+		await recordKpiReading({
+			workspaceRoot: args.workspacePath,
+			itemId: args.roadmapItemId,
+			kpiId: item.kpiId,
+			reading: item.reading,
+		});
+	}
+}
+
 async function runKpiCoverageCheck(args: {
 	workspacePath: string;
 	roadmapItemId: string;
@@ -563,7 +586,15 @@ async function runKpiCoverageCheck(args: {
 			details: "Task has no roadmap item; nothing to verify.",
 		};
 	}
-	const { values: itemKpis } = await loadProjectKpisForItem(args.workspacePath, args.roadmapItemId);
+	const { values: rawItemKpis } = await loadProjectKpisForItem(args.workspacePath, args.roadmapItemId);
+	// Hydrate parent KPI readings from kpi-state.json so auto-from-validator
+	// readings produced by the experiment-log extractor are visible to the
+	// coverage check.
+	const state = await readKpiStateFile(args.workspacePath);
+	const itemKpis = rawItemKpis.map((kpi) => ({
+		...kpi,
+		readings: state.items[args.roadmapItemId]?.kpis[kpi.id]?.readings ?? kpi.readings,
+	}));
 	const linkedSubKpis = (
 		await Promise.all(
 			args.linkedTaskIds.map(async (taskId) => (await loadSubKpisForTask(args.workspacePath, taskId)).values),
@@ -621,6 +652,14 @@ export async function validateDeliverable(options: ValidateDeliverableOptions): 
 		experimentLogs,
 		kpiCoverage,
 	];
+
+	// Phase C3: pull validator-source readings out of the experiment logs.
+	// `auto-from-validator` KPIs - which Phase B explicitly deferred - now
+	// gain readings whenever an experiment log emits a "kpi <id> = <value>"
+	// line or a JSON file with a kpiReadings array.
+	if (roadmapItemId) {
+		await ingestValidatorReadings({ workspacePath, taskId, roadmapItemId });
+	}
 
 	const result = computeOverallResult(checks);
 	const summary = computeSummary(checks, result);

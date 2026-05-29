@@ -154,6 +154,8 @@ import {
 	runtimeKpiRollupResponseSchema,
 	runtimeKpiSnapshotRequestSchema,
 	runtimeKpiSnapshotSchema,
+	runtimeKpiWorkspaceDashboardRequestSchema,
+	runtimeKpiWorkspaceDashboardResponseSchema,
 	runtimeOpenFileRequestSchema,
 	runtimeOpenFileResponseSchema,
 	runtimeProjectAddRequestSchema,
@@ -218,6 +220,8 @@ import { kpiBurndown, kpiCycleTime, kpiRegressions, kpiVelocity } from "../works
 import { loadProjectKpisForItem, loadSubKpisForTask } from "../workspace/kpi-roadmap-loader.js";
 import { buildKpiSnapshot } from "../workspace/kpi-snapshot.js";
 import { readKpiStateFile } from "../workspace/kpi-state-file.js";
+import { oldestOpenKpis, workspaceKpiSummary, workspaceVelocity } from "../workspace/kpi-workspace-history.js";
+import { parseRoadmapMarkdown, readRoadmapFile } from "../workspace/roadmap-file.js";
 import {
 	changelogEntryInputSchema as sharedMemoryChangelogEntryInputSchema,
 	changelogEntrySchema as sharedMemoryChangelogEntrySchema,
@@ -1176,6 +1180,82 @@ export const runtimeAppRouter = t.router({
 					cycleTime: kpiCycleTime(events, input.roadmapItemId),
 					regressions: kpiRegressions(events, input.roadmapItemId),
 				};
+			}),
+		getKpiWorkspaceDashboard: workspaceProcedure
+			.input(runtimeKpiWorkspaceDashboardRequestSchema)
+			.output(runtimeKpiWorkspaceDashboardResponseSchema)
+			.query(async ({ ctx, input }) => {
+				const workspaceRoot = ctx.workspaceScope.workspacePath;
+				const windowDays = input.windowDays === undefined ? 30 : input.windowDays;
+				const limit = input.limit ?? 10;
+
+				// Discover roadmap items from ROADMAP.md so the dashboard stays
+				// authoritative even if the board column membership changes.
+				const { content: roadmapContent } = await readRoadmapFile(workspaceRoot);
+				const roadmapItems = parseRoadmapMarkdown(roadmapContent);
+				const itemIds = roadmapItems.map((item) => item.id);
+
+				const events = await readKpiEvents(workspaceRoot);
+				const state = await readKpiStateFile(workspaceRoot);
+
+				const perItemSnapshots = await Promise.all(
+					itemIds.map(async (itemId) => {
+						const { values: definitions } = await loadProjectKpisForItem(workspaceRoot, itemId);
+						const snapshot = buildKpiSnapshot({ itemId, definitions, state });
+						const regressions = kpiRegressions(events, itemId);
+						return { itemId, snapshot, regressions };
+					}),
+				);
+
+				const summary = workspaceKpiSummary(
+					perItemSnapshots.map((entry) => ({
+						itemId: entry.itemId,
+						snapshot: entry.snapshot,
+						regressionCount: entry.regressions.length,
+					})),
+				);
+
+				const perItem = perItemSnapshots.map((entry) => {
+					const met = entry.snapshot.kpis.filter(
+						(e) => e.evaluation.status === "met" || e.evaluation.status === "waived",
+					).length;
+					return {
+						itemId: entry.itemId,
+						met,
+						total: entry.snapshot.kpis.length,
+						blockingIds: entry.snapshot.blockingKpis,
+						regressionCount: entry.regressions.length,
+					};
+				});
+
+				const oldestOpen = oldestOpenKpis(
+					events,
+					perItemSnapshots.map((e) => ({
+						itemId: e.itemId,
+						snapshot: e.snapshot,
+						regressionCount: e.regressions.length,
+					})),
+					limit,
+				);
+
+				const cutoffTs =
+					windowDays === null ? "" : new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+				const recentRegressions = perItemSnapshots
+					.flatMap((entry) =>
+						entry.regressions.map((reg) => ({
+							ts: reg.ts,
+							roadmapItemId: entry.itemId,
+							kpiId: reg.kpiId,
+							statusFrom: reg.statusFrom,
+							statusTo: reg.statusTo,
+						})),
+					)
+					.filter((reg) => windowDays === null || reg.ts >= cutoffTs)
+					.sort((a, b) => b.ts.localeCompare(a.ts));
+
+				const velocity = workspaceVelocity(events, windowDays);
+
+				return { summary, perItem, oldestOpen, recentRegressions, velocity };
 			}),
 		recordKpiReading: workspaceProcedure
 			.input(runtimeKpiRecordReadingRequestSchema)

@@ -1652,6 +1652,60 @@ export const runtimeKpiHistoryResponseSchema = z.object({
 });
 export type RuntimeKpiHistoryResponse = z.infer<typeof runtimeKpiHistoryResponseSchema>;
 
+// ---------------------------------------------------------------------------
+// KPI workspace dashboard (Phase D)
+// ---------------------------------------------------------------------------
+
+export const runtimeKpiWorkspaceDashboardRequestSchema = z.object({
+	windowDays: z.number().int().positive().nullable().optional(),
+	limit: z.number().int().positive().optional(),
+});
+export type RuntimeKpiWorkspaceDashboardRequest = z.infer<typeof runtimeKpiWorkspaceDashboardRequestSchema>;
+
+export const runtimeKpiWorkspaceSummarySchema = z.object({
+	totalItems: z.number().int().nonnegative(),
+	totalKpis: z.number().int().nonnegative(),
+	metKpis: z.number().int().nonnegative(),
+	regressionCount: z.number().int().nonnegative(),
+	blockedItemIds: z.array(z.string()),
+});
+export type RuntimeKpiWorkspaceSummary = z.infer<typeof runtimeKpiWorkspaceSummarySchema>;
+
+export const runtimeKpiWorkspacePerItemSchema = z.object({
+	itemId: z.string(),
+	met: z.number().int().nonnegative(),
+	total: z.number().int().nonnegative(),
+	blockingIds: z.array(z.string()),
+	regressionCount: z.number().int().nonnegative(),
+});
+export type RuntimeKpiWorkspacePerItem = z.infer<typeof runtimeKpiWorkspacePerItemSchema>;
+
+export const runtimeKpiOldestOpenEntrySchema = z.object({
+	roadmapItemId: z.string(),
+	kpiId: z.string(),
+	openedAt: z.string(),
+	daysOpen: z.number().int().nonnegative(),
+});
+export type RuntimeKpiOldestOpenEntry = z.infer<typeof runtimeKpiOldestOpenEntrySchema>;
+
+export const runtimeKpiWorkspaceRegressionEntrySchema = z.object({
+	ts: z.string(),
+	roadmapItemId: z.string(),
+	kpiId: z.string(),
+	statusFrom: z.literal("met"),
+	statusTo: z.literal("missed"),
+});
+export type RuntimeKpiWorkspaceRegressionEntry = z.infer<typeof runtimeKpiWorkspaceRegressionEntrySchema>;
+
+export const runtimeKpiWorkspaceDashboardResponseSchema = z.object({
+	summary: runtimeKpiWorkspaceSummarySchema,
+	perItem: z.array(runtimeKpiWorkspacePerItemSchema),
+	oldestOpen: z.array(runtimeKpiOldestOpenEntrySchema),
+	recentRegressions: z.array(runtimeKpiWorkspaceRegressionEntrySchema),
+	velocity: z.array(runtimeKpiVelocityBucketSchema),
+});
+export type RuntimeKpiWorkspaceDashboardResponse = z.infer<typeof runtimeKpiWorkspaceDashboardResponseSchema>;
+
 export const runtimeKpiRecordReadingRequestSchema = z.object({
 	roadmapItemId: z.string(),
 	kpiId: z.string(),

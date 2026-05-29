@@ -42,6 +42,7 @@ import {
 	recordKpiReading as recordProjectKpiReading,
 } from "../workspace/kpi-event-recorder.js";
 import { parseKpiMarkdownSection } from "../workspace/kpi-markdown.js";
+import { writeKpiPrometheusMetrics } from "../workspace/kpi-prometheus-writer.js";
 import { buildKpiSnapshot, formatSnapshotAsText, type KpiSnapshot } from "../workspace/kpi-snapshot.js";
 import { readKpiStateFile } from "../workspace/kpi-state-file.js";
 import type { KpiReading, KpiStatus, ProjectKpi } from "../workspace/project-kpi.js";
@@ -366,6 +367,72 @@ function formatBytes(bytes: number): string {
 	return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
+interface ExportPrometheusOptions {
+	output?: string;
+	workspaceLabel?: string;
+	watch?: boolean;
+	interval?: number;
+	workspace?: string;
+}
+
+const DEFAULT_PROM_INTERVAL_SECONDS = 60;
+
+export async function runKpiExportPrometheus(options: ExportPrometheusOptions): Promise<void> {
+	const workspaceRoot = resolve(options.workspace ?? process.cwd());
+	const writeOptions = {
+		...(options.output ? { outputPath: options.output } : {}),
+		...(options.workspaceLabel ? { workspaceLabel: options.workspaceLabel } : {}),
+	};
+	const wantsWatch = options.watch === true || (options.interval !== undefined && options.interval > 0);
+	const intervalSec = options.interval ?? DEFAULT_PROM_INTERVAL_SECONDS;
+
+	const writeOnce = async (): Promise<void> => {
+		const result = await writeKpiPrometheusMetrics(workspaceRoot, writeOptions);
+		const status = result.changed ? "wrote" : "unchanged";
+		process.stdout.write(`${status} ${result.path} (${formatBytes(result.bytes)})\n`);
+	};
+
+	if (!wantsWatch) {
+		await writeOnce();
+		return;
+	}
+
+	let stopped = false;
+	const stop = (): void => {
+		stopped = true;
+	};
+	process.on("SIGINT", stop);
+	process.on("SIGTERM", stop);
+
+	process.stdout.write(`Watching every ${intervalSec}s. Ctrl-C to stop.\n`);
+	while (!stopped) {
+		try {
+			await writeOnce();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			process.stderr.write(`Export failed: ${message}\n`);
+		}
+		if (stopped) break;
+		await sleep(intervalSec * 1000, () => stopped);
+	}
+	process.stdout.write("Stopped.\n");
+}
+
+function sleep(ms: number, stopped: () => boolean): Promise<void> {
+	return new Promise((resolveSleep) => {
+		const tickMs = Math.min(ms, 250);
+		const deadline = Date.now() + ms;
+		const tick = (): void => {
+			if (stopped() || Date.now() >= deadline) {
+				resolveSleep();
+				return;
+			}
+			setTimeout(tick, tickMs);
+		};
+		tick();
+	});
+}
+
 export function registerKpiCommand(program: Command): void {
 	const kpi = program.command("kpi").description("Inspect and record project KPI readings.");
 
@@ -435,5 +502,19 @@ export function registerKpiCommand(program: Command): void {
 		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
 		.action(async (options: EventsCompactOptions) => {
 			await runKpiEventsCompact(options);
+		});
+
+	const exportCmd = kpi.command("export").description("Export KPI state to external metrics formats.");
+
+	exportCmd
+		.command("prometheus")
+		.description("Write a Prometheus textfile-format .prom file from the current KPI state.")
+		.option("--output <path>", "Output path. Defaults to .kanban/kpi-metrics.prom.")
+		.option("--workspace-label <name>", "Override the workspace label. Defaults to the directory basename.")
+		.option("--watch", "Run as a refresh loop; exits on Ctrl-C.")
+		.option("--interval <seconds>", "Refresh interval (default 60). Implies --watch.", (v) => Number.parseInt(v, 10))
+		.option("--workspace <path>", "Workspace root. Defaults to current working directory.")
+		.action(async (options: ExportPrometheusOptions) => {
+			await runKpiExportPrometheus(options);
 		});
 }

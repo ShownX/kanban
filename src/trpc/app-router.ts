@@ -144,6 +144,8 @@ import {
 	runtimeHookIngestRequestSchema,
 	runtimeHookIngestResponseSchema,
 	runtimeKpiClearOverrideRequestSchema,
+	runtimeKpiHistoryRequestSchema,
+	runtimeKpiHistoryResponseSchema,
 	runtimeKpiOkResponseSchema,
 	runtimeKpiOverrideRequestSchema,
 	runtimeKpiRecordReadingRequestSchema,
@@ -205,12 +207,14 @@ import {
 	validationReviewOutcomeIoSchema,
 } from "../core/api-contract";
 import { experimentLogEntrySchema } from "../workspace/experiment-log-file.js";
+import { readKpiEvents } from "../workspace/kpi-event-log.js";
 import {
 	recordKpiOverrideCleared,
 	recordKpiOverrideSet,
 	recordKpiReading,
 	recordSubKpiReading,
 } from "../workspace/kpi-event-recorder.js";
+import { kpiBurndown, kpiCycleTime, kpiRegressions, kpiVelocity } from "../workspace/kpi-history.js";
 import { loadProjectKpisForItem, loadSubKpisForTask } from "../workspace/kpi-roadmap-loader.js";
 import { buildKpiSnapshot } from "../workspace/kpi-snapshot.js";
 import { readKpiStateFile } from "../workspace/kpi-state-file.js";
@@ -1157,6 +1161,21 @@ export const runtimeAppRouter = t.router({
 					}),
 				);
 				return { rollups };
+			}),
+		getKpiHistory: workspaceProcedure
+			.input(runtimeKpiHistoryRequestSchema)
+			.output(runtimeKpiHistoryResponseSchema)
+			.query(async ({ ctx, input }) => {
+				const workspaceRoot = ctx.workspaceScope.workspacePath;
+				const allEvents = await readKpiEvents(workspaceRoot);
+				const events = input.since ? allEvents.filter((e) => e.ts >= input.since!) : allEvents;
+				const velocityWindow = input.velocityWindowDays === undefined ? 30 : input.velocityWindowDays;
+				return {
+					burndown: kpiBurndown(events, input.roadmapItemId),
+					velocity: kpiVelocity(events, input.roadmapItemId, velocityWindow),
+					cycleTime: kpiCycleTime(events, input.roadmapItemId),
+					regressions: kpiRegressions(events, input.roadmapItemId),
+				};
 			}),
 		recordKpiReading: workspaceProcedure
 			.input(runtimeKpiRecordReadingRequestSchema)

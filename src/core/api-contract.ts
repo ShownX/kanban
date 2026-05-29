@@ -1608,6 +1608,50 @@ export const runtimeKpiRollupResponseSchema = z.object({
 });
 export type RuntimeKpiRollupResponse = z.infer<typeof runtimeKpiRollupResponseSchema>;
 
+export const runtimeKpiHistoryRequestSchema = z.object({
+	roadmapItemId: z.string(),
+	since: z.string().optional(),
+	velocityWindowDays: z.number().int().positive().nullable().optional(),
+});
+export type RuntimeKpiHistoryRequest = z.infer<typeof runtimeKpiHistoryRequestSchema>;
+
+export const runtimeKpiBurndownPointSchema = z.object({
+	ts: z.string(),
+	totalKpis: z.number().int().nonnegative(),
+	metKpis: z.number().int().nonnegative(),
+});
+export type RuntimeKpiBurndownPoint = z.infer<typeof runtimeKpiBurndownPointSchema>;
+
+export const runtimeKpiVelocityBucketSchema = z.object({
+	day: z.string(),
+	metCount: z.number().int().nonnegative(),
+});
+export type RuntimeKpiVelocityBucket = z.infer<typeof runtimeKpiVelocityBucketSchema>;
+
+export const runtimeKpiCycleTimeEntrySchema = z.object({
+	kpiId: z.string(),
+	firstReadingAt: z.string(),
+	firstMetAt: z.string(),
+	minutes: z.number().nonnegative(),
+});
+export type RuntimeKpiCycleTimeEntry = z.infer<typeof runtimeKpiCycleTimeEntrySchema>;
+
+export const runtimeKpiRegressionEntrySchema = z.object({
+	ts: z.string(),
+	kpiId: z.string(),
+	statusFrom: z.literal("met"),
+	statusTo: z.literal("missed"),
+});
+export type RuntimeKpiRegressionEntry = z.infer<typeof runtimeKpiRegressionEntrySchema>;
+
+export const runtimeKpiHistoryResponseSchema = z.object({
+	burndown: z.array(runtimeKpiBurndownPointSchema),
+	velocity: z.array(runtimeKpiVelocityBucketSchema),
+	cycleTime: z.array(runtimeKpiCycleTimeEntrySchema),
+	regressions: z.array(runtimeKpiRegressionEntrySchema),
+});
+export type RuntimeKpiHistoryResponse = z.infer<typeof runtimeKpiHistoryResponseSchema>;
+
 export const runtimeKpiRecordReadingRequestSchema = z.object({
 	roadmapItemId: z.string(),
 	kpiId: z.string(),

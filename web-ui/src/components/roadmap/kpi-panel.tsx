@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Spinner } from "@/components/ui/spinner";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { BurndownChart, CycleTimeList, RegressionList, VelocityChart } from "./kpi-history-charts";
+import { useKpiHistory } from "./use-kpi-history";
 import { useKpiSnapshot } from "./use-kpi-snapshot";
 
 type KpiStatus = RuntimeProjectKpi extends { override?: { status: infer S } } ? S : never;
@@ -27,7 +29,10 @@ interface KpiPanelProps {
 	workspaceId: string | null;
 }
 
+type KpiSubTab = "snapshot" | "history";
+
 export function KpiPanel({ roadmapItemId, workspaceId }: KpiPanelProps): ReactElement {
+	const [subTab, setSubTab] = useState<KpiSubTab>("snapshot");
 	const { snapshot, loading, error, reload } = useKpiSnapshot(roadmapItemId, workspaceId);
 
 	if (!roadmapItemId) {
@@ -62,20 +67,85 @@ export function KpiPanel({ roadmapItemId, workspaceId }: KpiPanelProps): ReactEl
 		<div className="flex-1 min-w-0 overflow-y-auto bg-surface-0 p-6">
 			<div className="max-w-3xl mx-auto space-y-4">
 				<KpiPanelHeader snapshot={snapshot} onRefresh={reload} loading={loading} />
-				{snapshot.warnings.length > 0 ? <KpiWarningsBanner warnings={snapshot.warnings} /> : null}
-				{!snapshot.allMet ? <KpiBlockingBanner blocking={snapshot.blockingKpis} /> : null}
-				<ul className="space-y-3">
-					{snapshot.kpis.map((entry) => (
-						<KpiRow
-							key={entry.definition.id}
-							entry={entry}
-							roadmapItemId={roadmapItemId}
-							workspaceId={workspaceId}
-							onMutated={reload}
-						/>
-					))}
-				</ul>
+				<KpiSubTabSwitcher activeTab={subTab} onChange={setSubTab} />
+				{subTab === "snapshot" ? (
+					<>
+						{snapshot.warnings.length > 0 ? <KpiWarningsBanner warnings={snapshot.warnings} /> : null}
+						{!snapshot.allMet ? <KpiBlockingBanner blocking={snapshot.blockingKpis} /> : null}
+						<ul className="space-y-3">
+							{snapshot.kpis.map((entry) => (
+								<KpiRow
+									key={entry.definition.id}
+									entry={entry}
+									roadmapItemId={roadmapItemId}
+									workspaceId={workspaceId}
+									onMutated={reload}
+								/>
+							))}
+						</ul>
+					</>
+				) : (
+					<KpiHistoryView roadmapItemId={roadmapItemId} workspaceId={workspaceId} />
+				)}
 			</div>
+		</div>
+	);
+}
+
+function KpiSubTabSwitcher({
+	activeTab,
+	onChange,
+}: {
+	activeTab: KpiSubTab;
+	onChange: (tab: KpiSubTab) => void;
+}): ReactElement {
+	const tabs: KpiSubTab[] = ["snapshot", "history"];
+	return (
+		<div className="flex items-center gap-1 border-b border-border">
+			{tabs.map((tab) => (
+				<button
+					key={tab}
+					type="button"
+					onClick={() => onChange(tab)}
+					className={cn(
+						"px-3 py-1.5 text-xs font-medium capitalize border-b-2 -mb-px transition-colors",
+						activeTab === tab
+							? "border-accent text-text-primary"
+							: "border-transparent text-text-secondary hover:text-text-primary",
+					)}
+				>
+					{tab}
+				</button>
+			))}
+		</div>
+	);
+}
+
+function KpiHistoryView({
+	roadmapItemId,
+	workspaceId,
+}: {
+	roadmapItemId: string;
+	workspaceId: string | null;
+}): ReactElement {
+	const { history, loading, error } = useKpiHistory(workspaceId, roadmapItemId);
+	if (loading && !history) {
+		return (
+			<div className="flex justify-center py-8">
+				<Spinner size={20} />
+			</div>
+		);
+	}
+	if (error) {
+		return <div className="text-xs text-status-red">Failed to load history: {error}</div>;
+	}
+	if (!history) return <div className="text-xs text-text-tertiary">No event history yet.</div>;
+	return (
+		<div className="space-y-3">
+			<BurndownChart points={history.burndown} />
+			<VelocityChart buckets={history.velocity} />
+			<CycleTimeList entries={history.cycleTime} />
+			<RegressionList entries={history.regressions} />
 		</div>
 	);
 }
